@@ -115,7 +115,7 @@
             <div class="tip-row">${tips}</div>
           </div>
         </div>
-        <div>
+        <div class="foot-col">
           <h4>Marketplace</h4>
           <a href="products.html">All Products</a>
           <a href="deals.html">Affiliate Deals</a>
@@ -123,14 +123,14 @@
           <a href="products.html?cat=Services">Services</a>
           <a href="products.html?cat=Courses">Courses</a>
         </div>
-        <div>
+        <div class="foot-col">
           <h4>Company</h4>
           <a href="about.html">About Us</a>
           <a href="sell.html">Sell with Us</a>
           <a href="dashboard.html">Seller Dashboard</a>
           <a href="contact.html">Contact</a>
         </div>
-        <div>
+        <div class="foot-col">
           <h4>Support</h4>
           <a href="contact.html">Help Center</a>
           <a href="mailto:${CFG.SUPPORT_EMAIL}">${CFG.SUPPORT_EMAIL}</a>
@@ -143,15 +143,18 @@
           </div>
         </div>
       </div>
+      <div class="foot-legal-bar">
+        <nav class="foot-legal" aria-label="Legal">
+          <a href="terms.html">Terms of Service</a>
+          <a href="privacy.html">Privacy Policy</a>
+          <a href="refund.html">Refund Policy</a>
+          <a href="shipping.html">Shipping Policy</a>
+        </nav>
+        <a class="foot-admin" href="admin.html">Admin Panel</a>
+      </div>
       <div class="foot-bottom">
-        <span>© ${new Date().getFullYear()} ${esc(CFG.BRAND)}. All rights reserved. · GST registered</span>
-        <span class="foot-legal">
-          <a href="terms.html">Terms</a> ·
-          <a href="privacy.html">Privacy</a> ·
-          <a href="refund.html">Refunds</a> ·
-          <a href="shipping.html">Delivery</a> ·
-          <a href="admin.html">Admin</a>
-        </span>
+        <span>© ${new Date().getFullYear()} ${esc(CFG.BRAND)}. All rights reserved.</span>
+        <span>GST registered · Payments secured by Razorpay</span>
       </div>
     </div>`;
 
