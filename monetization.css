@@ -1,0 +1,131 @@
+/* Auto-split module — part of SR CodeMatrix design system (monetization.css) */
+
+/* ============================================================
+   Monetization & Tech UI additions
+   ============================================================ */
+
+/* PRO membership */
+.pro-chip {
+  display: inline-grid; place-items: center; font-size: .62rem; font-weight: 900;
+  letter-spacing: .1em; background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #3b2300; padding: 3px 8px; border-radius: 6px; vertical-align: middle;
+  box-shadow: 0 4px 12px rgba(251, 191, 36, .4);
+}
+.pro-btn {
+  background: linear-gradient(135deg, rgba(251, 191, 36, .18), rgba(245, 158, 11, .12));
+  border: 1px solid rgba(251, 191, 36, .55); color: #fcd34d;
+  font-size: .8rem; font-weight: 750; padding: 9px 14px; border-radius: 999px;
+  transition: .15s; white-space: nowrap;
+}
+.pro-btn:hover { background: rgba(251, 191, 36, .28); transform: translateY(-1px); }
+.pro-strip {
+  background: linear-gradient(135deg, rgba(251, 191, 36, .12), rgba(245, 158, 11, .06));
+  border: 1px solid rgba(251, 191, 36, .4); color: #fde68a;
+  border-radius: 11px; padding: 12px 16px; font-size: .88rem;
+}
+.pro-modal { text-align: left; }
+.pro-modal h3 { margin-bottom: 4px; }
+.pro-ribbon {
+  display: inline-block; font-size: .68rem; font-weight: 900; letter-spacing: .14em;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b); color: #3b2300;
+  padding: 5px 12px; border-radius: 999px; margin-bottom: 10px;
+}
+.pro-perks { list-style: none; display: grid; gap: 10px; margin: 14px 0 20px; }
+.pro-perks li { font-size: .92rem; color: #dbe4ff; }
+.link-btn {
+  background: none; border: 0; color: var(--accent); font-size: inherit;
+  text-decoration: underline; cursor: pointer; padding: 0;
+}
+.link-btn:hover { color: #67e8f9; }
+
+/* Pro band on home */
+.pro-band {
+  display: grid; grid-template-columns: 1.4fr auto; gap: 24px; align-items: center;
+  background:
+    radial-gradient(400px 160px at 90% 20%, rgba(251, 191, 36, .16), transparent 60%),
+    linear-gradient(135deg, #1c1635, #0f172a);
+  border: 1px solid rgba(251, 191, 36, .35); border-radius: 20px;
+  padding: 34px 36px;
+}
+.pro-band h3 { font-size: clamp(1.2rem, 2.4vw, 1.7rem); letter-spacing: -.02em; }
+.pro-band h3 em { font-style: normal; background: linear-gradient(135deg, #fbbf24, #f59e0b); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.pro-band p { color: #c9d3ec; font-size: .93rem; margin-top: 8px; max-width: 560px; }
+.pro-band-perks { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
+.pro-band-perks span {
+  font-size: .78rem; background: rgba(251, 191, 36, .12); border: 1px solid rgba(251, 191, 36, .35);
+  color: #fde68a; padding: 5px 12px; border-radius: 999px; font-weight: 650;
+}
+.pro-band .btn-xl { padding: 18px 30px; font-size: 1.05rem; border-radius: 14px; }
+
+/* Deal cards */
+.deal-note { font-size: .82rem; color: var(--muted); margin-top: 6px; }
+.deal-cta {
+  margin-top: 10px; font-size: .88rem; font-weight: 750; color: var(--accent);
+}
+.deal-card:hover .deal-cta { text-decoration: underline; }
+.deal-card .p-visual { position: relative; }
+.store-chip {
+  font-size: .7rem; font-weight: 800; background: rgba(7, 11, 20, .8);
+  border: 1px solid rgba(255,255,255,.25); padding: 4px 10px; border-radius: 999px;
+}
+.affiliate-disclaimer {
+  font-size: .78rem; color: var(--muted); text-align: center;
+  max-width: 720px; margin: 18px auto 0;
+}
+
+/* Sticky ad bar */
+.sticky-ad {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 90;
+  background: rgba(10, 15, 28, .96); backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border2);
+  padding: 12px 46px 12px 16px;
+  display: flex; align-items: center; justify-content: center;
+  min-height: 64px; box-shadow: 0 -10px 30px rgba(0, 0, 0, .4);
+  animation: stickyIn .4s ease;
+}
+@keyframes stickyIn { from { transform: translateY(100%); } }
+.sticky-ad .ad-label {
+  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+}
+.sticky-ad .house-ad { width: min(900px, 100%); }
+.sticky-x {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; border-radius: 8px; background: var(--surface2);
+  border: 1px solid var(--border2); color: var(--muted); font-size: 1.1rem; line-height: 1;
+}
+.sticky-x:hover { color: var(--text); border-color: var(--primary); }
+body.has-sticky-ad #toast-root { bottom: 92px; }
+body.has-sticky-ad #site-footer { padding-bottom: 90px; }
+
+/* Tip jar */
+.tip-jar { margin-top: 18px; }
+.tip-label { display: block; font-size: .82rem; color: var(--muted); margin-bottom: 8px; }
+.tip-row { display: flex; gap: 8px; }
+.tip-btn {
+  background: var(--surface); border: 1px solid var(--border2); color: var(--text);
+  border-radius: 9px; padding: 8px 15px; font-weight: 750; font-size: .86rem; transition: .15s;
+}
+.tip-btn:hover { border-color: var(--ok); color: var(--ok); transform: translateY(-2px); }
+.tip-hero { font-size: 2.4rem; text-align: center; margin-bottom: 8px; }
+.foot-addr { font-size: .84rem; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+
+/* Featured / promo card on sell page */
+.promo-card {
+  display: grid; grid-template-columns: 1.5fr auto; gap: 20px; align-items: center;
+  background: var(--surface); border: 1.5px dashed var(--border2);
+  border-radius: 18px; padding: 28px 30px;
+}
+.promo-card h3 { font-size: 1.2rem; }
+.promo-card p { color: var(--muted); font-size: .9rem; margin-top: 6px; }
+
+/* Responsive additions */
+@media (max-width: 900px) {
+  .pro-band, .promo-card { grid-template-columns: 1fr; text-align: center; }
+  .pro-band-perks { justify-content: center; }
+}
+@media (max-width: 760px) {
+  .pro-btn { display: none; }
+  .sticky-ad { padding: 10px 40px 10px 10px; min-height: 56px; }
+  body.has-sticky-ad #toast-root { bottom: 80px; }
+  .hero { padding: 64px 0 52px; }
+}

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tech Deals — Amazon & Flipkart Offers | SR CodeMatrix</title>
+  <meta name="description" content="Curated tech deals from Amazon and Flipkart — laptops, courses, gadgets and hosting offers, updated daily.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><text x='50' y='64' font-size='42' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>SR</text></svg>">
+</head>
+<body data-page="deals">
+
+  <header id="site-header"></header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container">
+        <h1>Daily <span class="grad-txt">Tech Deals</span></h1>
+        <p>Hand-picked offers from Amazon and Flipkart. When you buy through our links, we earn a small affiliate commission — at no extra cost to you.</p>
+      </div>
+    </section>
+
+    <div class="container">
+      <div class="toolbar">
+        <div class="search-box" style="pointer-events:none;opacity:.75">
+          <input type="search" placeholder="Deals refresh daily — browse categories below" disabled>
+        </div>
+        <a href="products.html" class="btn btn-outline btn-sm">Marketplace Products →</a>
+      </div>
+
+      <div class="grid-4" id="deals-grid"></div>
+
+      <p class="affiliate-disclaimer" id="affiliate-note">
+        As an Amazon Associate and Flipkart affiliate, we earn from qualifying purchases. Prices are set by the stores and may change.
+      </p>
+
+      <div class="mt-4"></div>
+      <div class="ad-slot" data-format="auto" data-slot="in_feed"></div>
+      <div class="mt-4"></div>
+
+      <div class="cta-band" style="margin-bottom:40px">
+        <h2>Sell your own products instead</h2>
+        <p>Why only buy? List your software, courses or services and earn on every sale.</p>
+        <div class="cta-actions">
+          <a href="sell.html" class="btn btn-accent btn-lg">Become a Seller →</a>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

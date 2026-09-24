@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Products — SR CodeMatrix Pvt Ltd</title>
+  <meta name="description" content="Browse software, services, courses and templates on the SR CodeMatrix marketplace.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><text x='50' y='64' font-size='42' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>SR</text></svg>">
+</head>
+<body data-page="products">
+
+  <header id="site-header"></header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container">
+        <h1>Marketplace <span class="grad-txt">Catalog</span></h1>
+        <p>Curated software, services, courses and templates from verified sellers — with secure Razorpay checkout.</p>
+      </div>
+    </section>
+
+    <div class="container">
+      <div class="pro-strip" id="pro-strip" style="margin-top:18px"></div>
+
+      <div class="toolbar">
+        <div class="search-box">
+          <input id="search-input" type="search" placeholder="Search products… (e.g. CRM, React, hosting)">
+        </div>
+        <select id="sort-select" aria-label="Sort">
+          <option value="popular">Sort: Popular</option>
+          <option value="price-low">Price: Low → High</option>
+          <option value="price-high">Price: High → Low</option>
+          <option value="rating">Rating: High → Low</option>
+        </select>
+      </div>
+
+      <div class="chip-row" id="chip-row"></div>
+      <div class="results-line" id="results-count"></div>
+      <div class="grid-4" id="products-grid" style="margin-bottom:30px"></div>
+
+      <div class="ad-slot" data-format="auto" data-slot="in_feed"></div>
+      <div style="height:30px"></div>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

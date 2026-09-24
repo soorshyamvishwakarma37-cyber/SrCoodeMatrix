@@ -1,0 +1,110 @@
+/* Auto-split module — part of SR CodeMatrix design system (legal-reviews.css) */
+
+/* ============================================================
+   Legal pages · Reviews · GST · Maintenance · Admin settings
+   ============================================================ */
+
+/* Legal */
+.legal-page {
+  display: grid; grid-template-columns: 240px 1fr; gap: 22px;
+  padding: 36px 0 60px; align-items: start;
+}
+.legal-toc {
+  position: sticky; top: 86px; padding: 18px 16px; display: flex; flex-direction: column; gap: 4px;
+}
+.legal-toc strong { font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.legal-toc a {
+  padding: 9px 12px; border-radius: 9px; font-size: .88rem; color: var(--muted);
+  font-weight: 600; transition: .14s;
+}
+.legal-toc a:hover { background: rgba(255,255,255,.05); color: var(--text); }
+.legal-toc a.active { background: rgba(99,102,241,.18); color: var(--text); }
+.legal-content { padding: 34px 38px; line-height: 1.75; }
+.legal-updated {
+  font-size: .78rem; color: var(--accent); font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; margin-bottom: 22px;
+}
+.legal-content h2 {
+  font-size: 1.12rem; margin: 26px 0 10px; letter-spacing: -.01em;
+  padding-top: 6px; border-top: 1px dashed var(--border2);
+}
+.legal-content h2:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.legal-content p { color: #c5cfe8; font-size: .93rem; margin-bottom: 10px; }
+.legal-content ul { margin: 4px 0 14px 4px; list-style: none; }
+.legal-content li {
+  position: relative; padding-left: 20px; margin-bottom: 7px;
+  color: #c5cfe8; font-size: .92rem;
+}
+.legal-content li::before { content: "›"; position: absolute; left: 4px; color: var(--accent); font-weight: 800; }
+
+/* Reviews */
+.reviews-layout { display: grid; grid-template-columns: 280px 1fr; gap: 22px; align-items: start; }
+.review-summary { padding: 24px 22px; text-align: center; position: sticky; top: 86px; }
+.rs-big { font-size: 3rem; font-weight: 900; letter-spacing: -.04em; line-height: 1; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rs-stars { margin: 8px 0 4px; font-size: 1.15rem; }
+.rs-count { font-size: .82rem; color: var(--muted); }
+.rs-dist { margin-top: 16px; display: grid; gap: 7px; }
+.dist-row { display: grid; grid-template-columns: 30px 1fr 24px; gap: 8px; align-items: center; font-size: .76rem; color: var(--muted); }
+.dist-bar { height: 8px; background: var(--bg2); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
+.dist-bar i { display: block; height: 100%; background: var(--grad); border-radius: 99px; }
+.review-list { display: grid; gap: 14px; }
+.review-item {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 13px; padding: 18px 20px;
+}
+.ri-head { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+.ri-head .t-av { width: 40px; height: 40px; font-size: .8rem; }
+.ri-meta { font-size: .78rem; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.review-item h4 { font-size: .96rem; margin-bottom: 5px; }
+.review-item p { font-size: .9rem; color: #c5cfe8; }
+.star-input { display: flex; gap: 6px; justify-content: center; margin: 10px 0 4px; }
+.star-pick {
+  background: none; border: 0; font-size: 2.1rem; color: var(--border2);
+  transition: .12s; line-height: 1; padding: 2px;
+}
+.star-pick:hover, .star-pick.on { color: var(--warn); transform: scale(1.12); text-shadow: 0 4px 14px rgba(251,191,36,.5); }
+.review-form-box h3 { text-align: center; margin-bottom: 4px; }
+.gst-link {
+  display: inline-block; margin-top: 6px; font-size: .78rem; font-weight: 750;
+  color: var(--accent); text-decoration: underline;
+}
+
+/* Maintenance screen */
+.maint-screen {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  background:
+    radial-gradient(600px 320px at 20% 10%, rgba(99,102,241,.3), transparent 60%),
+    radial-gradient(500px 300px at 85% 80%, rgba(34,211,238,.18), transparent 60%),
+    var(--bg);
+}
+.maint-box {
+  text-align: center; background: var(--surface); border: 1px solid var(--border2);
+  border-radius: 22px; padding: 54px 44px; max-width: 520px; box-shadow: var(--shadow);
+}
+.maint-ic { font-size: 3rem; margin-bottom: 12px; }
+.maint-box h1 { font-size: 1.7rem; letter-spacing: -.02em; margin-bottom: 10px; }
+.maint-box p { color: var(--muted); font-size: .95rem; }
+.maint-sub { margin-top: 16px; font-size: .85rem; }
+.maint-sub a { color: var(--accent); }
+
+/* Admin settings */
+.settings-sep {
+  grid-column: 1 / -1; font-size: .76rem; font-weight: 800; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--accent); margin-top: 18px;
+  padding-top: 14px; border-top: 1px dashed var(--border2);
+}
+.toggle-row {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px 4px;
+  border-bottom: 1px dashed var(--border); cursor: pointer; font-size: .88rem; color: #c5cfe8;
+}
+.toggle-row input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--primary); }
+
+/* Legal responsive */
+@media (max-width: 900px) {
+  .legal-page { grid-template-columns: 1fr; }
+  .legal-toc { position: static; flex-direction: row; flex-wrap: wrap; }
+  .reviews-layout { grid-template-columns: 1fr; }
+  .review-summary { position: static; }
+}
+@media (max-width: 640px) {
+  .legal-content { padding: 24px 18px; }
+}

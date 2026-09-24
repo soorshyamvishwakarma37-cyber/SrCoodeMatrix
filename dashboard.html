@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seller Dashboard — SR CodeMatrix Pvt Ltd</title>
+  <meta name="description" content="Seller dashboard — products, orders and revenue analytics.">
+  <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><text x='50' y='64' font-size='42' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>SR</text></svg>">
+</head>
+<body data-page="dashboard">
+
+  <header id="site-header"></header>
+
+  <main>
+    <!-- AUTH -->
+    <div id="auth-view" class="auth-wrap">
+      <div class="auth-card">
+        <h2>Seller <span class="grad-txt">Login</span></h2>
+        <p class="sub">Access your dashboard — manage orders, products and earnings.</p>
+
+        <div class="tab-row" id="auth-tabs">
+          <button class="tab active" data-tab="login" type="button">Login</button>
+          <button class="tab" data-tab="register" type="button">Register</button>
+        </div>
+
+        <form id="login-form" class="form">
+          <label class="field"><span>Email</span><input type="email" name="email" required placeholder="seller@email.com"></label>
+          <label class="field"><span>Password</span><input type="password" name="password" required placeholder="••••••••" minlength="6"></label>
+          <button class="btn btn-primary btn-block" type="submit">Login →</button>
+        </form>
+
+        <form id="register-form" class="form" style="display:none">
+          <label class="field"><span>Name</span><input name="name" required placeholder="Your name"></label>
+          <label class="field"><span>Email</span><input type="email" name="email" required placeholder="seller@email.com"></label>
+          <label class="field"><span>Password</span><input type="password" name="password" required minlength="6" placeholder="min 6 characters"></label>
+          <label class="field"><span>Confirm Password</span><input type="password" name="password2" required minlength="6" placeholder="repeat password"></label>
+          <button class="btn btn-primary btn-block" type="submit">Create Account →</button>
+        </form>
+
+        <p class="form-note" style="text-align:center;margin-top:14px">Seller accounts are reviewed by our team before products go live.</p>
+      </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboard-view" class="dash-shell" style="display:none">
+      <aside class="dash-side" id="side-nav">
+        <div class="side-title">Menu</div>
+        <button class="side-link active" data-view="overview">📊 Overview</button>
+        <button class="side-link" data-view="products">📦 My Products</button>
+        <button class="side-link" data-view="orders">🧾 Orders</button>
+        <button class="side-link" data-view="add">➕ Add Product</button>
+        <div class="side-foot">
+          <div>Mode: <strong id="mode-chip">—</strong></div>
+          <div style="margin-top:4px">SR CodeMatrix v1.0</div>
+        </div>
+      </aside>
+
+      <div class="dash-main">
+        <div class="dash-top">
+          <div>
+            <h1>Seller Dashboard</h1>
+            <p>Welcome back — here's your business snapshot for today.</p>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <span class="user-chip" id="user-chip">Seller</span>
+            <button class="btn btn-outline btn-sm" id="logout-btn2">Logout</button>
+          </div>
+        </div>
+
+        <!-- OVERVIEW -->
+        <section class="dash-view" id="overview-view">
+          <div class="stat-grid">
+            <div class="stat-tile"><div class="st-lab">Products</div><div class="st-val" id="st-products">0</div></div>
+            <div class="stat-tile"><div class="st-lab">Orders</div><div class="st-val" id="st-orders">0</div></div>
+            <div class="stat-tile"><div class="st-lab">Revenue</div><div class="st-val" id="st-revenue">₹0</div></div>
+            <div class="stat-tile"><div class="st-lab">Customers</div><div class="st-val" id="st-customers">0</div></div>
+          </div>
+
+          <div class="dash-cols">
+            <div class="panel">
+              <h3>Revenue — last 7 days</h3>
+              <div class="chart-box" id="chart"></div>
+            </div>
+            <div class="panel">
+              <h3>Recent Orders</h3>
+              <div class="table-scroll">
+                <table>
+                  <thead><tr><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Date</th></tr></thead>
+                  <tbody id="recent-orders"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="ad-slot" data-format="horizontal" data-slot="sidebar"></div>
+        </section>
+
+        <!-- PRODUCTS -->
+        <section class="dash-view" id="products-view" style="display:none">
+          <div class="panel">
+            <h3>My Products</h3>
+            <div id="manage-products"><p class="muted">Loading…</p></div>
+          </div>
+        </section>
+
+        <!-- ORDERS -->
+        <section class="dash-view" id="orders-view" style="display:none">
+          <div class="panel">
+            <h3>All Orders</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Order ID</th><th>Customer</th><th>Items</th><th>Amount</th><th>Status</th></tr></thead>
+                <tbody id="orders-table"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ADD PRODUCT -->
+        <section class="dash-view" id="add-view" style="display:none">
+          <div class="panel">
+            <h3>Add New Product</h3>
+            <form id="product-form" class="form">
+              <div class="form-grid">
+                <label class="field span-2"><span>Title *</span><input name="title" required placeholder="e.g. Invoice Generator SaaS"></label>
+                <label class="field"><span>Category *</span>
+                  <select name="category" required>
+                    <option>Software</option><option>Services</option><option>Courses</option>
+                    <option>Templates</option><option>Design</option><option>Marketing</option><option>Hosting</option>
+                  </select>
+                </label>
+                <label class="field"><span>Icon</span>
+                  <select name="icon">
+                    <option value="code">Code</option><option value="mobile">Mobile</option>
+                    <option value="cloud">Cloud</option><option value="shield">Shield</option>
+                    <option value="cap">Course</option><option value="brush">Design</option>
+                    <option value="template">Template</option><option value="bot">AI Bot</option>
+                    <option value="rocket">Rocket</option><option value="plug">Service</option>
+                    <option value="chart">Chart</option><option value="wp">WP</option>
+                  </select>
+                </label>
+                <label class="field"><span>Selling Price ₹ *</span><input name="price" type="number" min="1" required placeholder="1499"></label>
+                <label class="field"><span>MRP ₹ (strikethrough)</span><input name="mrp" type="number" min="0" placeholder="2999"></label>
+                <label class="field span-2"><span>Description *</span><textarea name="desc" required placeholder="Short product description…"></textarea></label>
+                <label class="field span-2"><span>Features (comma separated)</span><input name="features" placeholder="Lifetime access, 24×7 support, GST invoice"></label>
+              </div>
+              <button class="btn btn-primary" type="submit">Publish Product →</button>
+            </form>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+  <script>
+    Store.init().then(m => { const el = document.getElementById("mode-chip"); if (el) el.textContent = m === "firebase" ? "Firebase (live)" : "Local demo"; });
+  </script>
+</body>
+</html>

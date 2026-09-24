@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sell with Us — SR CodeMatrix Pvt Ltd</title>
+  <meta name="description" content="List your products on SR CodeMatrix — free starter plan, Razorpay payouts and growth tools.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><text x='50' y='64' font-size='42' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>SR</text></svg>">
+</head>
+<body data-page="sell">
+
+  <header id="site-header"></header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container sell-hero-grid">
+        <div>
+          <span class="hero-badge"><span class="dot"></span> Secure Razorpay payments · Seller approval within 24h</span>
+          <h1>Sell your products — <span class="grad-txt">the safe way</span></h1>
+          <p style="color:#b9c4e3;margin:14px 0 24px;max-width:520px">
+            Software, services, courses or templates — sell anything. We bring the buyers, the secure Razorpay checkout, GST invoicing and fast weekly payouts.
+          </p>
+          <div class="benefit-list">
+            <div class="benefit">
+              <span class="b-ic">🎯</span>
+              <div><strong>Free listing — Starter plan</strong><p>List up to 10 products at zero cost.</p></div>
+            </div>
+            <div class="benefit">
+              <span class="b-ic">💸</span>
+              <div><strong>Weekly Razorpay payouts</strong><p>Settlement every Monday, straight to your bank account.</p></div>
+            </div>
+            <div class="benefit">
+              <span class="b-ic">📊</span>
+              <div><strong>Real-time dashboard</strong><p>Orders, revenue and customer insights in one place.</p></div>
+            </div>
+            <div class="benefit">
+              <span class="b-ic">📣</span>
+              <div><strong>Featured promotion slots</strong><p>Homepage visibility for Growth and Enterprise sellers.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="sell-form-card" id="seller-form-card">
+          <h3>Seller Registration</h3>
+          <p>Fill the form → choose a plan → pay with Razorpay (or start free).</p>
+          <form id="seller-form" class="form">
+            <div class="form-grid">
+              <label class="field"><span>Full Name *</span><input name="name" required placeholder="Your full name"></label>
+              <label class="field"><span>Phone *</span><input name="phone" required placeholder="+91 98xxxxxx"></label>
+              <label class="field span-2"><span>Email *</span><input name="email" type="email" required placeholder="you@email.com"></label>
+              <label class="field span-2"><span>Business / Brand Name *</span><input name="business" required placeholder="e.g. PixelCraft Studio"></label>
+              <label class="field span-2"><span>Category *</span>
+                <select name="category" required>
+                  <option value="">Select a category…</option>
+                  <option>Software</option><option>Services</option><option>Courses</option>
+                  <option>Templates</option><option>Design</option><option>Marketing</option><option>Hosting</option>
+                </select>
+              </label>
+              <label class="field span-2"><span>Selected Plan</span><input id="plan-input" name="plan" readonly value="Growth"></label>
+            </div>
+            <button class="btn btn-primary btn-lg btn-block" type="submit">Continue to Payment / Submit →</button>
+            <p class="form-note">By continuing you agree to the seller terms. Test mode — plan payments are simulated in demo.</p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+    <!-- PLANS -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Seller Plans</span>
+          <h2>Plans built to stay <span class="grad-txt">profitable</span></h2>
+          <p>Upgrade any time from the dashboard. Secure billing via Razorpay.</p>
+        </div>
+        <div class="plans" id="plans-grid"></div>
+      </div>
+    </section>
+
+    <!-- FEATURED PROMOTION (Income source) -->
+    <section class="section" style="padding-top:0">
+      <div class="container">
+        <div class="promo-card">
+          <div>
+            <h3>🚀 Featured Placement — ₹499 one-time</h3>
+            <p>Boost any listing for 30 days: homepage featured grid, top rank in category results and a "Featured" badge on your card.</p>
+          </div>
+          <button class="btn btn-primary btn-lg" data-promote type="button">Buy Promotion</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="container">
+      <div class="ad-slot" data-format="horizontal" data-slot="home_banner"></div>
+    </div>
+
+    <!-- COMMISSION -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">Transparent Pricing</span>
+          <h2>Commission structure</h2>
+        </div>
+        <div class="grid-3">
+          <div class="feature-card">
+            <div class="f-ic">🧮</div>
+            <h3>Success fee only</h3>
+            <p>A fee applies only on successful orders — listing is free within the starter limit.</p>
+          </div>
+          <div class="feature-card">
+            <div class="f-ic">🏦</div>
+            <h3>No hidden charges</h3>
+            <p>Razorpay MRR + platform fee only — nothing else. Payouts are free above ₹1,000.</p>
+          </div>
+          <div class="feature-card">
+            <div class="f-ic">📄</div>
+            <h3>GST-ready reports</h3>
+            <p>Monthly statements, TCS/TDS details and downloadable invoices.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section" style="padding-top:20px">
+      <div class="container">
+        <div class="section-head">
+          <span class="kicker">FAQ</span>
+          <h2>Common questions</h2>
+        </div>
+        <div class="faq">
+          <details open>
+            <summary>How long does seller approval take?</summary>
+            <p>The form takes 2 minutes. Our team verifies within 24 working hours, then you can list products immediately.</p>
+          </details>
+          <details>
+            <summary>How and when do I get paid?</summary>
+            <p>Through Razorpay settlement every Monday — settled order amounts go directly to your registered bank account.</p>
+          </details>
+          <details>
+            <summary>Can I start for free?</summary>
+            <p>Yes — the Starter plan is free forever (10 products, 5% fee). Upgrade to Growth (₹499/mo) when you scale.</p>
+          </details>
+          <details>
+            <summary>Can I sell physical goods?</summary>
+            <p>The marketplace is currently optimised for digital products and services. For physical goods, contact us — custom onboarding is available.</p>
+          </details>
+          <details>
+            <summary>What is the refund policy?</summary>
+            <p>Digital products carry a 7-day refund policy if product access fails. Service milestones release via escrow.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="section" style="padding-top:10px">
+      <div class="container">
+        <div class="cta-band">
+          <h2>List your first product today</h2>
+          <p>The Starter plan is free — no credit card required. Upgrade only when you see results.</p>
+          <div class="cta-actions">
+            <a href="#seller-form-card" class="btn btn-accent btn-lg">Register as a Seller</a>
+            <a href="dashboard.html" class="btn btn-ghost btn-lg">Open Dashboard</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer id="site-footer"></footer>
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

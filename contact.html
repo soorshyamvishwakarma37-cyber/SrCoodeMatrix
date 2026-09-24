@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contact Us — SR CodeMatrix Pvt Ltd</title>
+  <meta name="description" content="Contact SR CodeMatrix Pvt Ltd — support, sales and seller enquiries. Narmadapuram Road, Misrod, Bhopal.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%236366f1'/><text x='50' y='64' font-size='42' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>SR</text></svg>">
+</head>
+<body data-page="contact">
+
+  <header id="site-header"></header>
+
+  <main>
+    <section class="page-hero">
+      <div class="container">
+        <h1>Talk to <span class="grad-txt">our team</span></h1>
+        <p>Product issues, seller enquiries or business collaborations — we reply within 24 hours.</p>
+      </div>
+    </section>
+
+    <div class="container contact-layout">
+      <div>
+        <div class="info-card">
+          <span class="ic">📍</span>
+          <div><strong>Head Office</strong><p id="addr">Narmadapuram Road, Misrod, Bhopal 462026, Madhya Pradesh</p></div>
+        </div>
+        <div class="info-card">
+          <span class="ic">📧</span>
+          <div><strong>Email</strong><p><a href="mailto:support@srcodematrix.com" id="mail">support@srcodematrix.com</a></p></div>
+        </div>
+        <div class="info-card">
+          <span class="ic">📞</span>
+          <div><strong>Phone / WhatsApp</strong><p><a href="tel:+917869969190" id="tel">+91 78699 69190</a></p></div>
+        </div>
+        <div class="info-card">
+          <span class="ic">⏰</span>
+          <div><strong>Support Hours</strong><p>Mon–Sat · 10:00 AM – 7:00 PM IST</p></div>
+        </div>
+        <div class="ad-slot tall" data-format="rectangle" data-slot="sidebar"></div>
+      </div>
+
+      <div class="contact-form-card">
+        <h3 style="font-size:1.2rem;margin-bottom:6px">Send a Message</h3>
+        <p style="color:var(--muted);font-size:.88rem;margin-bottom:20px">Fill the form — a ticket is created in our CRM automatically.</p>
+        <form id="contact-form" class="form">
+          <div class="form-grid">
+            <label class="field"><span>Name *</span><input name="name" required placeholder="Your name"></label>
+            <label class="field"><span>Email *</span><input type="email" name="email" required placeholder="you@email.com"></label>
+            <label class="field span-2"><span>Subject *</span>
+              <select name="subject" required>
+                <option value="">Select a topic…</option>
+                <option>Order / Payment issue</option>
+                <option>Seller registration</option>
+                <option>Product enquiry</option>
+                <option>Refund request</option>
+                <option>Partnership / Business</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label class="field span-2"><span>Message *</span><textarea name="message" required placeholder="Tell us how we can help…"></textarea></label>
+          </div>
+          <button class="btn btn-primary btn-lg" type="submit">Send Message →</button>
+          <p class="form-note">Average first response: under 6 hours on business days.</p>
+        </form>
+      </div>
+    </div>
+
+    <div class="container">
+      <section class="section" style="padding-top:0">
+        <div class="section-head">
+          <span class="kicker">Quick Help</span>
+          <h2>Check the FAQs first</h2>
+        </div>
+        <div class="faq">
+          <details>
+            <summary>Payment succeeded but I don't see my order?</summary>
+            <p>Refresh Dashboard → Orders. Wait up to 5 minutes for the receipt email, then contact support with your Payment ID.</p>
+          </details>
+          <details>
+            <summary>When will I get my refund?</summary>
+            <p>Approved refunds reflect in the original payment method within 5–7 working days (bank processing time).</p>
+          </details>
+          <details>
+            <summary>My seller account is not approved?</summary>
+            <p>Your verification is likely pending — confirm your business name and category. It escalates within 24 hours.</p>
+          </details>
+        </div>
+      </section>
+    </div>
+
+    <!-- NEWSLETTER -->
+    <div class="container">
+      <div class="cta-band" style="padding:40px 30px">
+        <h2 style="font-size:1.4rem">Newsletter — offers &amp; growth tips</h2>
+        <p>One email a month. Never spam.</p>
+        <form id="newsletter-form" class="foot-news" style="max-width:440px;margin:0 auto">
+          <input name="email" type="email" required placeholder="your@email.com">
+          <button class="btn btn-accent" type="submit">Subscribe</button>
+        </form>
+      </div>
+      <div style="height:26px"></div>
+      <div class="ad-slot" data-format="horizontal" data-slot="footer"></div>
+    </div>
+  </main>
+
+  <footer id="site-footer"></footer>
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+  <script>
+    document.getElementById("mail").textContent = SR_CONFIG.SUPPORT_EMAIL;
+    document.getElementById("mail").href = "mailto:" + SR_CONFIG.SUPPORT_EMAIL;
+    document.getElementById("tel").textContent = SR_CONFIG.SUPPORT_PHONE;
+    document.getElementById("tel").href = "tel:" + SR_CONFIG.SUPPORT_PHONE.replace(/\s/g, "");
+    document.getElementById("addr").textContent = SR_CONFIG.ADDRESS;
+  </script>
+</body>
+</html>

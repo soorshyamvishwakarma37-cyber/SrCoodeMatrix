@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin Panel — SR CodeMatrix Pvt Ltd</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%23dc2626'/><text x='50' y='64' font-size='36' font-family='Arial' font-weight='bold' fill='white' text-anchor='middle'>ADM</text></svg>">
+</head>
+<body data-page="admin">
+
+  <!-- LOGIN: only soorshyamvishwakarma37@gmail.com -->
+  <div id="admin-auth" class="auth-wrap">
+    <div class="auth-card admin-auth-card">
+      <div class="admin-crown">🛡️</div>
+      <h2>Admin <span class="grad-txt">Panel</span></h2>
+      <p class="sub">Restricted access — authorized administrator only.</p>
+      <form id="admin-login-form" class="form">
+        <label class="field">
+          <span>Admin Email</span>
+          <input type="email" id="admin-email" required autocomplete="username"
+                 placeholder="admin@email.com" value="">
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input type="password" id="admin-password" required autocomplete="current-password"
+                 placeholder="••••••••" minlength="6">
+        </label>
+        <button class="btn btn-primary btn-block btn-lg" type="submit">Sign In →</button>
+      </form>
+      <p class="form-note" style="text-align:center;margin-top:14px">
+        🔒 Only <strong id="allowed-email">soorshyamvishwakarma37@gmail.com</strong> can sign in.
+      </p>
+      <p class="form-note" style="text-align:center">
+        Preview/offline password: <code>Admin@2026</code> · Live: your Firebase password.
+      </p>
+      <div class="text-center mt-2"><a href="index.html" class="link-btn">← Back to website</a></div>
+    </div>
+  </div>
+
+  <!-- PANEL -->
+  <div id="admin-panel" class="dash-shell" style="display:none">
+    <aside class="dash-side admin-side" id="admin-side">
+      <div class="side-title">Administration</div>
+      <button class="side-link active" data-view="overview">📊 Overview</button>
+      <button class="side-link" data-view="products">📦 Products</button>
+      <button class="side-link" data-view="orders">🧾 Orders</button>
+      <button class="side-link" data-view="sellers">🏪 Sellers</button>
+      <button class="side-link" data-view="messages">✉️ Messages</button>
+      <button class="side-link" data-view="coupons">🎟️ Coupons</button>
+      <button class="side-link" data-view="reviews">⭐ Reviews</button>
+      <button class="side-link" data-view="settings">⚙️ Settings</button>
+      <div class="side-foot">
+        <div>Mode: <strong id="a-mode">—</strong></div>
+        <div style="margin-top:4px">Admin v1.0</div>
+      </div>
+    </aside>
+
+    <div class="dash-main">
+      <div class="dash-top">
+        <div>
+          <h1>Admin Panel</h1>
+          <p>Full control — products, orders, sellers, payments settings.</p>
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <span class="user-chip admin-chip" id="admin-email-chip">admin</span>
+          <button class="btn btn-outline btn-sm" id="admin-logout">Sign Out</button>
+        </div>
+      </div>
+
+      <!-- OVERVIEW -->
+      <section class="admin-view" id="overview-view">
+        <div class="stat-grid">
+          <div class="stat-tile"><div class="st-lab">Live Products</div><div class="st-val" id="a-products">0</div></div>
+          <div class="stat-tile"><div class="st-lab">Pending Approval</div><div class="st-val" id="a-pending">0</div></div>
+          <div class="stat-tile"><div class="st-lab">Orders</div><div class="st-val" id="a-orders">0</div></div>
+          <div class="stat-tile"><div class="st-lab">Total Revenue</div><div class="st-val" id="a-revenue">₹0</div></div>
+          <div class="stat-tile"><div class="st-lab">Sellers</div><div class="st-val" id="a-sellers">0</div></div>
+          <div class="stat-tile"><div class="st-lab">Sellers Pending</div><div class="st-val" id="a-pending-sellers">0</div></div>
+          <div class="stat-tile"><div class="st-lab">Unread / Messages</div><div class="st-val" id="a-messages">0 / 0</div></div>
+          <div class="stat-tile"><div class="st-lab">Customers</div><div class="st-val" id="a-customers">0</div></div>
+        </div>
+
+        <div class="dash-cols">
+          <div class="panel">
+            <h3>💳 Payment Configuration</h3>
+            <div class="ck-line"><span>Razorpay key</span><span class="mono" id="a-key">—</span></div>
+            <div class="ck-line"><span>GST configuration</span><span class="mono" id="a-gst">—</span></div>
+            <p class="muted">Change it in <button class="link-btn" onclick="document.querySelector('[data-view=settings]').click()">Settings →</button> (admin only).</p>
+          </div>
+          <div class="panel">
+            <h3>📜 Admin Activity Log</h3>
+            <div id="a-logs"><p class="muted">Loading…</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- PRODUCTS -->
+      <section class="admin-view" id="products-view" style="display:none">
+        <div class="dash-cols">
+          <div class="panel">
+            <h3>Products — approve, feature, delete</h3>
+            <div id="admin-products"><p class="muted">Loading…</p></div>
+          </div>
+          <div class="panel">
+            <h3>Add Product (instant — admin)</h3>
+            <form id="admin-product-form" class="form">
+              <div class="form-grid">
+                <label class="field span-2"><span>Title *</span><input name="title" required placeholder="Product title"></label>
+                <label class="field"><span>Category *</span>
+                  <select name="category" required>
+                    <option>Software</option><option>Services</option><option>Courses</option>
+                    <option>Templates</option><option>Design</option><option>Marketing</option><option>Hosting</option>
+                  </select>
+                </label>
+                <label class="field"><span>Icon</span>
+                  <select name="icon">
+                    <option value="code">Code</option><option value="mobile">Mobile</option>
+                    <option value="cloud">Cloud</option><option value="shield">Shield</option>
+                    <option value="cap">Course</option><option value="brush">Design</option>
+                    <option value="template">Template</option><option value="bot">AI Bot</option>
+                    <option value="rocket">Rocket</option><option value="plug">Service</option>
+                    <option value="chart">Chart</option><option value="wp">WP</option>
+                  </select>
+                </label>
+                <label class="field"><span>Price ₹ *</span><input name="price" type="number" min="1" required></label>
+                <label class="field"><span>MRP ₹</span><input name="mrp" type="number" min="0"></label>
+                <label class="field span-2"><span>Description *</span><textarea name="desc" required></textarea></label>
+                <label class="field span-2"><span>Features (comma separated)</span><input name="features" placeholder="Lifetime access, Support, GST invoice"></label>
+                <label class="field"><span>Rating (0–5, customize)</span><input name="rating" type="number" min="0" max="5" step="0.1" placeholder="4.5"></label>
+                <label class="field span-2"><span>Badge</span>
+                  <select name="badge"><option value="">None</option><option>New</option><option>Hot</option><option>Bestseller</option><option>Featured</option></select>
+                </label>
+              </div>
+              <button class="btn btn-primary" type="submit">Publish Product ✓</button>
+            </form>
+            <div class="mt-3" style="display:flex;gap:10px;flex-wrap:wrap">
+              <button class="btn btn-outline btn-sm" id="tool-purge" type="button">🧹 Purge legacy demo data</button>
+              <button class="btn btn-outline btn-sm" id="tool-clear" type="button" style="border-color:#7f1d1d;color:#fca5a5">Clear entire catalog</button>
+            </div>
+            <p class="form-note mt-2">This store runs on <strong>live data only</strong>. Use the purge tool once after launch to remove any old sample records.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ORDERS -->
+      <section class="admin-view" id="orders-view" style="display:none">
+        <div class="panel">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+            <h3 style="margin:0">All Orders</h3>
+            <button class="btn btn-accent btn-sm" id="export-orders" type="button">⬇ Export CSV</button>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Order</th><th>Customer</th><th>Items</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody id="admin-orders"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- SELLERS -->
+      <section class="admin-view" id="sellers-view" style="display:none">
+        <div class="panel">
+          <h3>Seller Applications</h3>
+          <div id="admin-sellers"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- MESSAGES -->
+      <section class="admin-view" id="messages-view" style="display:none">
+        <div class="panel">
+          <h3>Inbox — contact form &amp; newsletter</h3>
+          <div id="admin-messages"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- COUPONS -->
+      <section class="admin-view" id="coupons-view" style="display:none">
+        <div class="dash-cols">
+          <div class="panel">
+            <h3>Active Coupons</h3>
+            <div id="admin-coupons"><p class="muted">Loading…</p></div>
+          </div>
+          <div class="panel">
+            <h3>Create Coupon</h3>
+            <form id="coupon-form" class="form">
+              <div class="form-grid">
+                <label class="field"><span>Code * (A–Z, 0–9)</span><input name="code" required placeholder="FESTIVE20" style="text-transform:uppercase"></label>
+                <label class="field"><span>Type *</span>
+                  <select name="type"><option value="percent">Percent %</option><option value="flat">Flat ₹</option></select>
+                </label>
+                <label class="field"><span>Value *</span><input name="value" type="number" min="1" max="90" required placeholder="20"></label>
+                <label class="field"><span>Label</span><input name="label" placeholder="20% OFF"></label>
+                <label class="field span-2" style="flex-direction:row;align-items:center;gap:10px">
+                  <input type="checkbox" name="proOnly" style="width:auto"> <span>PRO members only</span>
+                </label>
+              </div>
+              <button class="btn btn-primary" type="submit">Create Coupon +</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- REVIEWS -->
+      <section class="admin-view" id="reviews-view" style="display:none">
+        <div class="panel">
+          <h3>Product Reviews — moderate ratings</h3>
+          <div id="admin-reviews"><p class="muted">Loading…</p></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="admin-view" id="settings-view" style="display:none">
+        <div class="dash-cols">
+          <div class="panel admin-critical">
+            <h3>💳 Razorpay Key <span class="tag tag-hot">ADMIN ONLY</span></h3>
+            <p class="muted">Current active key: <strong class="mono" id="set-key-current">—</strong></p>
+            <form id="settings-form" class="form">
+              <label class="field">
+                <span>New Razorpay Key ID (rzp_test_… or rzp_live_…)</span>
+                <input id="set-key" placeholder="rzp_live_xxxxxxxxxxxxxxxx" autocomplete="off">
+              </label>
+              <label class="field">
+                <span>Google AdSense Client ID</span>
+                <input id="set-adsense" placeholder="ca-pub-XXXXXXXXXXXXXXXX" autocomplete="off">
+              </label>
+              <label class="field">
+                <span>Site Announcement (top banner — leave empty to hide)</span>
+                <input id="set-announcement" placeholder="Festive offer live — use coupon SR10!" maxlength="200">
+              </label>
+
+              <div class="settings-sep">🧾 Business &amp; GST (for tax invoices)</div>
+              <div class="form-grid">
+                <label class="field span-2"><span>Legal Company Name</span><input id="set-company" placeholder="SR CodeMatrix Pvt Ltd" maxlength="120"></label>
+                <label class="field"><span>GSTIN (15 chars)</span><input id="set-gstin" placeholder="23AAAAA0000A1Z5" maxlength="15" style="text-transform:uppercase"></label>
+                <label class="field"><span>GST Rate % (0–28)</span><input id="set-gst-rate" type="number" min="0" max="28" step="0.5" value="18"></label>
+                <label class="field"><span>Invoice Prefix</span><input id="set-invoice-prefix" placeholder="SRCM" maxlength="10"></label>
+                <label class="field"><span>SAC Code (services)</span><input id="set-sac" placeholder="998313" maxlength="10"></label>
+                <label class="field span-2"><span>Place of Supply / Home State</span>
+                  <select id="set-state">
+                    <option value="01">Jammu & Kashmir (01)</option><option value="02">Himachal Pradesh (02)</option>
+                    <option value="03">Punjab (03)</option><option value="04">Chandigarh (04)</option>
+                    <option value="05">Uttarakhand (05)</option><option value="06">Haryana (06)</option>
+                    <option value="07">Delhi (07)</option><option value="08">Rajasthan (08)</option>
+                    <option value="09">Uttar Pradesh (09)</option><option value="10">Bihar (10)</option>
+                    <option value="11">Sikkim (11)</option><option value="12">Arunachal Pradesh (12)</option>
+                    <option value="13">Nagaland (13)</option><option value="14">Manipur (14)</option>
+                    <option value="15">Mizoram (15)</option><option value="16">Tripura (16)</option>
+                    <option value="17">Meghalaya (17)</option><option value="18">Assam (18)</option>
+                    <option value="19">West Bengal (19)</option><option value="20">Jharkhand (20)</option>
+                    <option value="21">Odisha (21)</option><option value="22">Chhattisgarh (22)</option>
+                    <option value="23">Madhya Pradesh (23)</option><option value="24">Gujarat (24)</option>
+                    <option value="27">Maharashtra (27)</option><option value="29">Karnataka (29)</option>
+                    <option value="30">Goa (30)</option><option value="32">Kerala (32)</option>
+                    <option value="33">Tamil Nadu (33)</option><option value="34">Puducherry (34)</option>
+                    <option value="36">Telangana (36)</option><option value="37">Andhra Pradesh (37)</option>
+                    <option value="38">Ladakh (38)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="settings-sep">📞 Public Contact Details (footer &amp; contact page)</div>
+              <div class="form-grid">
+                <label class="field"><span>Support Email</span><input id="set-email" type="email" placeholder="support@srcodematrix.com"></label>
+                <label class="field"><span>Support Phone</span><input id="set-phone" placeholder="+91 78699 69190"></label>
+                <label class="field span-2"><span>Office Address</span><input id="set-address" maxlength="200" placeholder="Narmadapuram Road, Misrod, Bhopal 462026"></label>
+              </div>
+
+              <div class="settings-sep">🎛️ Store Controls</div>
+              <label class="toggle-row"><input type="checkbox" id="set-reviews"> <span><strong>Enable buyer reviews &amp; ratings</strong> — buyers can star-rate products they purchase</span></label>
+              <label class="toggle-row"><input type="checkbox" id="set-maintenance"> <span><strong>Maintenance mode</strong> — storefront shows “under maintenance”; admin keeps access</span></label>
+
+              <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+                <button class="btn btn-primary" type="submit">Save All Settings ✓</button>
+                <button class="btn btn-outline" id="reset-key" type="button">Reset Razorpay key to default</button>
+              </div>
+            </form>
+            <p class="form-note">Active AdSense: <strong id="set-ads-current">—</strong></p>
+          </div>
+          <div class="panel">
+            <h3>🔐 Security Status</h3>
+            <div class="ck-line"><span>Admin email lock</span><span class="ok-txt">✓ Enforced</span></div>
+            <div class="ck-line"><span>Key format validation</span><span class="ok-txt">✓ rzp_(test|live)_…</span></div>
+            <div class="ck-line"><span>Login rate limit</span><span class="ok-txt">✓ 8 tries / minute</span></div>
+            <div class="ck-line"><span>Product approval gate</span><span class="ok-txt">✓ Seller items reviewed</span></div>
+            <div class="ck-line"><span>Admin email reserved</span><span class="ok-txt">✓ Cannot self-register</span></div>
+            <div class="ck-line"><span>Data backend</span><span id="sec-mode" class="mono">—</span></div>
+            <p class="form-note mt-2">Set Firebase Realtime DB rules from README.md before going live.</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast-root"></div>
+  <div id="modal-root"></div>
+
+  <script src="config.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <script src="store.js"></script>
+  <script src="main.js"></script>
+  <script src="admin.js"></script>
+  <script>
+    // Show allowed email + prefill
+    document.getElementById("allowed-email").textContent = SR_CONFIG.ADMIN_EMAIL;
+    document.getElementById("admin-email").value = SR_CONFIG.ADMIN_EMAIL;
+    Store.init().then(m => {
+      const el = document.getElementById("sec-mode");
+      if (el) el.textContent = m === "firebase" ? "Firebase Auth ✓" : "Local (preview)";
+    });
+  </script>
+</body>
+</html>
