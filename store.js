@@ -20,6 +20,32 @@
   function normEmail(e) { return String(e || "").trim().toLowerCase(); }
   function isAdminEmail(e) { return normEmail(e) === normEmail(CFG.ADMIN_EMAIL); }
 
+  /** Map Firebase auth codes → clear, user-friendly English messages. */
+  function friendlyAuthError(e) {
+    const code = (e && e.code) || "";
+    const map = {
+      "auth/email-already-in-use": "This email is already registered. Please Login instead.",
+      "auth/invalid-email": "Please enter a valid email address.",
+      "auth/weak-password": "Password is too weak — use at least 6 characters.",
+      "auth/user-not-found": "No account found with this email. Please Create Account first.",
+      "auth/wrong-password": "Incorrect password. Please try again.",
+      "auth/invalid-credential": "Incorrect email or password. Please try again.",
+      "auth/invalid-login-credentials": "Incorrect email or password. Please try again.",
+      "auth/too-many-requests": "Too many attempts. Please wait a minute and try again.",
+      "auth/network-request-failed": "Network error — check your internet connection and retry.",
+      "auth/operation-not-allowed": "Google Sign-in is not enabled yet. Enable it in Firebase Console → Authentication → Sign-in method → Google → Save.",
+      "auth/unauthorized-domain": "This domain is not authorized in Firebase. Add it under Authentication → Settings → Authorized domains.",
+      "auth/popup-blocked": "Popup was blocked — allow popups for this site and try again.",
+      "auth/popup-closed-by-user": "Google sign-in cancelled.",
+      "auth/cancelled-popup-request": "Google sign-in cancelled.",
+      "auth/account-exists-with-different-credential": "An account already exists with this email. Sign in with email & password instead.",
+      "auth/user-disabled": "This account has been disabled. Please contact support."
+    };
+    if (map[code]) return new Error(map[code]);
+    if (e instanceof Error) return e;
+    return new Error((e && e.message) || "Authentication failed. Please try again.");
+  }
+
   /* ---------- Seller Plans ---------- */
   const SELLER_PLANS = [
     {
@@ -338,9 +364,11 @@
       await this.init();
       if (isAdminEmail(email)) throw new Error("This email is reserved for the administrator.");
       if (this.mode === "firebase") {
-        const cred = await this.auth.createUserWithEmailAndPassword(email, password);
-        if (name) await cred.user.updateProfile({ displayName: name });
-        return { uid: cred.user.uid, email, name };
+        try {
+          const cred = await this.auth.createUserWithEmailAndPassword(email, password);
+          if (name) await cred.user.updateProfile({ displayName: name });
+          return { uid: cred.user.uid, email, name };
+        } catch (e) { throw friendlyAuthError(e); }
       }
       const users = mem.get("sr_users", []);
       if (users.find(u => normEmail(u.email) === normEmail(email))) throw new Error("Email already registered.");
@@ -354,13 +382,53 @@
       return session;
     },
 
+    /**
+     * Google Sign-In (Firebase live mode only).
+     * opts.adminOnly → reject any Google account that is not CFG.ADMIN_EMAIL.
+     */
+    async googleLogin(opts) {
+      await this.init();
+      if (this.mode !== "firebase" || !this.auth) {
+        throw new Error("Google Sign-in needs a live Firebase connection. Offline preview: use email & password.");
+      }
+      const provider = new firebase.auth.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      try {
+        const cred = await this.auth.signInWithPopup(provider);
+        const email = normEmail(cred.user.email);
+        if (opts && opts.adminOnly && !isAdminEmail(email)) {
+          await this.auth.signOut();
+          throw new Error("Access denied. This Google account is not the administrator.");
+        }
+        const user = {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          name: cred.user.displayName || email.split("@")[0]
+        };
+        this._user = user;
+        mem.set("sr_session", user);
+        // NOTE: do NOT fire _authCbs here — Firebase onAuthStateChanged already notifies listeners
+        // (manual fire caused double dashboard/admin loads).
+        return user;
+      } catch (e) {
+        const code = e && e.code;
+        if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+          throw new Error("Google sign-in cancelled.");
+        }
+        if (e && e.message && e.message.indexOf("Access denied") === 0) throw e;
+        throw friendlyAuthError(e);
+      }
+    },
+
     /** Seller login — admin email is redirected to the Admin Panel. */
     async login(email, password) {
       await this.init();
       if (isAdminEmail(email)) throw new Error("Admin account — please sign in from the Admin Panel.");
       if (this.mode === "firebase") {
-        const cred = await this.auth.signInWithEmailAndPassword(email, password);
-        return { uid: cred.user.uid, email: cred.user.email, name: cred.user.displayName || email.split("@")[0] };
+        try {
+          const cred = await this.auth.signInWithEmailAndPassword(email, password);
+          return { uid: cred.user.uid, email: cred.user.email, name: cred.user.displayName || email.split("@")[0] };
+        } catch (e) { throw friendlyAuthError(e); }
       }
       const users = mem.get("sr_users", []);
       const u = users.find(x => normEmail(x.email) === normEmail(email) && x.password === password);
@@ -394,7 +462,8 @@
         } catch (e) {
           tries.n++; tries.t = Date.now();
           sessionStorage.setItem(key, JSON.stringify(tries));
-          throw new Error(e.message && e.message.includes("Access") ? e.message : "Invalid email or password.");
+          if (e && e.message && e.message.includes("Access denied")) throw e;
+          throw friendlyAuthError(e);
         }
       } else {
         if (password !== CFG.ADMIN_LOCAL_PASSWORD) {

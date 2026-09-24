@@ -460,7 +460,7 @@
     const base = Math.max(0, subtotal - discount);
     const taxCfg = await Store.taxConfig();
     const stateOptions = STATES.map(([code, name]) =>
-      `<option value="${code}"${code === taxCfg.state_code ? "" : ""}>${name} (${code})</option>`).join("");
+      `<option value="${code}"${code === taxCfg.state_code ? " selected" : ""}>${name} (${code})</option>`).join("");
 
     modal(`
       <button class="modal-x" onclick="closeModal()">&times;</button>
@@ -1002,6 +1002,16 @@
       t.classList.add("active");
       $("#login-form").style.display = t.dataset.tab === "login" ? "" : "none";
       $("#register-form").style.display = t.dataset.tab === "register" ? "" : "none";
+    });
+
+    const gBtn = $("#google-login-btn");
+    if (gBtn) gBtn.addEventListener("click", async () => {
+      gBtn.disabled = true;
+      try {
+        await Store.googleLogin();
+        toast("Signed in with Google ✓");
+      } catch (err) { toast(err.message, "err"); }
+      finally { gBtn.disabled = false; }
     });
 
     $("#side-nav").addEventListener("click", e => {

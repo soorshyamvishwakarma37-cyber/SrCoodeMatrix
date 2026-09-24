@@ -72,6 +72,16 @@
       } catch (err) { toast(err.message, "err"); }
     });
 
+    const adminGBtn = $("#admin-google-btn");
+    if (adminGBtn) adminGBtn.addEventListener("click", async () => {
+      adminGBtn.disabled = true;
+      try {
+        await Store.googleLogin({ adminOnly: true });
+        toast("Welcome, Administrator ✓");
+      } catch (err) { toast(err.message, "err"); }
+      finally { adminGBtn.disabled = false; }
+    });
+
     $("#admin-logout").addEventListener("click", async () => { await Store.logout(); toast("Signed out."); });
 
     /* ---------- Sidebar ---------- */
