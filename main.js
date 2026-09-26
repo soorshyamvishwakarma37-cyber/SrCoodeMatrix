@@ -100,6 +100,26 @@
       `<button class="tip-btn" data-tip="${a}" type="button">₹${a}</button>`).join("");
     $("#site-footer").innerHTML = `
     <div class="container">
+      <div class="foot-shortcut">
+        <div class="fs-intro">
+          <span class="fs-logo"><span class="brand-mark">SR</span></span>
+          <div class="fs-intro-txt">
+            <strong>SR CodeMatrix</strong>
+            <span>India's developer marketplace — software, services &amp; digital products.</span>
+          </div>
+          <a class="btn btn-primary btn-sm fs-login" href="dashboard.html">🔑 Login / Sign up</a>
+        </div>
+        <nav class="fs-links" aria-label="Quick links">
+          <a href="index.html" class="fs-item"><span class="fs-ic">🏠</span>Home</a>
+          <a href="products.html" class="fs-item"><span class="fs-ic">🛍️</span>Products</a>
+          <a href="deals.html" class="fs-item"><span class="fs-ic">🔥</span>Deals</a>
+          <a href="sell.html" class="fs-item"><span class="fs-ic">💼</span>Sell</a>
+          <a href="dashboard.html" class="fs-item"><span class="fs-ic">📊</span>Dashboard</a>
+          <a href="cart.html" class="fs-item"><span class="fs-ic">🛒</span>Cart</a>
+          <a href="about.html" class="fs-item"><span class="fs-ic">ℹ️</span>About</a>
+          <a href="contact.html" class="fs-item"><span class="fs-ic">✉️</span>Contact</a>
+        </nav>
+      </div>
       <div class="foot-grid">
         <div class="foot-brand">
           <a class="brand" href="index.html"><span class="brand-mark">SR</span><span class="brand-txt">Code<span>Matrix</span></span></a>

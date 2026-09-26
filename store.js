@@ -118,6 +118,17 @@
         // Live start: NO demo products, NO demo orders.
         return this.mode;
       })();
+      // Auto-purge legacy demo/sample data ONCE per browser (and Firebase on first run).
+      this._ready.then(() => {
+        try {
+          if (!mem.get("sr_purge_done", false)) {
+            this.purgeLegacyDemo().then(n => {
+              mem.set("sr_purge_done", true);
+              if (n) console.warn("[SR] Removed " + n + " legacy demo record(s).");
+            }).catch(() => { mem.set("sr_purge_done", true); });
+          }
+        } catch (e) {}
+      });
       return this._ready;
     },
 
@@ -612,6 +623,19 @@
       for (const p of products) {
         if (demoProductIds.includes(p.id)) { await this.deleteProduct(p.id); removed++; }
       }
+      // orphan reviews on deleted demo products
+      try {
+        let revs;
+        if (this.mode === "firebase") {
+          const snap = await this.db.ref("reviews").once("value");
+          revs = Object.values(snap.val() || {});
+        } else {
+          revs = mem.get("sr_reviews", []);
+        }
+        for (const r of revs) {
+          if (demoProductIds.includes(r.productId)) { await this.deleteReview(r.id); removed++; }
+        }
+      } catch (e) {}
       const orders = await this.listOrders();
       for (const o of orders) {
         const demoOrder = /^SRD\d+/.test(o.id) || String(o.paymentId || "").startsWith("pay_seed");
@@ -621,8 +645,8 @@
           removed++;
         }
       }
-      // legacy local keys
-      ["sr_seed_v", "sr_products", "sr_orders_demo"].forEach(k => mem.del(k));
+      // legacy local keys (NOTE: "sr_products" is the LIVE catalog — never delete it wholesale)
+      ["sr_seed_v", "sr_orders_demo", "sr_test_users"].forEach(k => mem.del(k));
       if (this.mode === "local") {
         // keep only non-demo local orders
         const local = mem.get("sr_orders", []);

@@ -7,7 +7,7 @@ window.SR_CONFIG = {
   BRAND: "SR CodeMatrix Pvt Ltd",
   BRAND_SHORT: "SR CodeMatrix",
   TAGLINE: "India's developer marketplace for software, services & digital products",
-  SUPPORT_EMAIL: "support@srcodematrix.com",
+  SUPPORT_EMAIL: "soorshyamvishwakarma37@gmail.com",
   SUPPORT_PHONE: "+91 78699 69190",
   ADDRESS: "Narmadapuram Road, Misrod, Bhopal 462026, Madhya Pradesh",
 
@@ -15,7 +15,7 @@ window.SR_CONFIG = {
   ADMIN_EMAIL: "soorshyamvishwakarma37@gmail.com",
   // Used ONLY when Firebase is offline (preview/demo mode).
   // LIVE: admin signs in with their real Firebase Auth password.
-  ADMIN_LOCAL_PASSWORD: "Admin@2026",
+  ADMIN_LOCAL_PASSWORD: "Surya@6260",
 
   // ---- Razorpay ----
   // Default key. Admin Panel → Settings can OVERRIDE this key live.
