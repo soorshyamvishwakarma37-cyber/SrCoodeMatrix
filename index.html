@@ -1,18 +1,16 @@
 <!--
 ================================================================================
- SR CODEMATRIX — 3 FILES ME POORA WEBSITE
+ SR CODEMATRIX — EK HI FILE ME POORA WEBSITE
 ================================================================================
-   index.html   → poora website (8 pages + admin panel)
-   style.css    → saara design / CSS
-   script.js    → saara JavaScript + saara data
-
- Teeno files ek hi folder me rakho aur index.html kholo — chalu ho jayega.
- Hosting par upload karne ke liye teeno files ek saath daal do.
+ Is EK file me sab kuch hai: 8 pages + admin panel + CSS + saara JS.
+ Koi alag css/js file ki zarurat nahi. Ise kisi bhi host par upload
+ kar do (ya bas double-click karke kholo) — chalu ho jayega.
 
  ---------------------------------------------------------------------------
- DATA KAISE BADLEIN?  (script.js kholo)
- --------------------------------------------------------------------------
- Sabse upar "const DATA = {" dhoondo — usi ke andar sab kuch hai:
+ DATA KAISE BADLEIN?
+ ---------------------------------------------------------------------------
+ Neeche "<script>" dhoondo jisme likha hai:   const DATA = {
+ Usi ke andar apni details bharein:
    brand.email, brand.phone, brand.whatsapp, brand.address ...
    templates: [...]        → store ke templates
    calculator.types[].p    → order ki rates
@@ -20,10 +18,11 @@
    faqs, testimonials, stats, incomeSources ...
 
  YA phir sabse aasan tareeka:
-   Site kholo → #admin → 24 sections me sab edit karo → "Save & Publish"
+   Site kholo → Admin panel (#admin) → 24 sections me sab edit karo
+   → "Save & Publish". (Data is browser ke localStorage me save hota hai.)
 
- GOOGLE LOGIN : script.js me  GOOGLE_CLIENT_ID : "....apps.googleusercontent.com",
- ADMIN PIN    : script.js me  ADMIN_PIN         : "7391",
+ GOOGLE LOGIN:  GOOGLE_CLIENT_ID : "....apps.googleusercontent.com",
+ ADMIN PIN:     ADMIN_PIN         : "7391",
 
  ---------------------------------------------------------------------------
  PAGES (hash router):  #index  #store  #earnings  #order  #features
@@ -50,7 +49,7 @@
     <div class="intro-name grad-text" id="introName">SR CODEMATRIX</div>
     <div class="intro-tag" id="introTag">Website Sell · Website Build</div>
     <div class="intro-bar"><span></span></div>
-    <div class="mtx">*+]1}{$/++0[1[=&gt;#*@#{#*&amp;&lt;&lt;</div>
+    <div class="mtx"></div>
   </div>
   <button class="intro-skip">SKIP INTRO →</button>
 </div>
@@ -65,6 +64,10 @@
 
 <!-- ======================= CONFIG ======================= -->
 
+<!-- ======================= FIREBASE ======================= -->
+
+<!-- ======================= RAZORPAY ======================= -->
+
 <!-- ======================= MAIN ======================= -->
 
 <!-- ======================= AUTH ======================= -->
@@ -77,5 +80,5 @@
 
 
 <script src="script.js"></script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a4192e0b1d6c46c2',t:'MTc5MDQ5ODE3Nw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>

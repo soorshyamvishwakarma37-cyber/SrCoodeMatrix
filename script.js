@@ -423,16 +423,48 @@ window.DATA = DATA; window.has = has; window.orDash = orDash; window.money = mon
 
 const SR_CONFIG = {
 
-  /* ---------- GOOGLE SIGN-IN ----------
-     Khaali chhodoge to Google button "Setup Required" dikhayega.
-     Real login chahiye to:
-       1) https://console.cloud.google.com → New Project
-       2) APIs & Services → Credentials → Create Credentials
-          → OAuth client ID → Application type: Web application
-       3) Authorized JavaScript origins me apna domain daalo
-       4) Client ID yahan paste karo
+  /* ---------- GOOGLE SIGN-IN (asli OAuth 2.0) ----------
+     Ye woh Client ID hai jo Firebase Auth me "Google" provider
+     enable karne par milta hai:
+       Firebase Console → Authentication → Sign-in method
+       → Google → Web SDK configuration → Web client ID
+     (Firebase se aa raha OAuth client generally kaam karta hai.)
   */
-  GOOGLE_CLIENT_ID : "",
+  GOOGLE_CLIENT_ID : "211091351218-6n0jrrqjpvnpuhkgcua1q0p1m5m8k3q0.apps.googleusercontent.com",
+
+  /* ============================================================
+     FIREBASE  (sewaastra)
+     ============================================================ */
+  FIREBASE: {
+    apiKey        : "AIzaSyAL9dsBvNrp-ijxAk7ZYZcbN0BPaZ5gYtw",
+    authDomain    : "sewaastra.firebaseapp.com",
+    projectId     : "sewaastra",
+    storageBucket : "sewaastra.firebasestorage.app",
+    messagingSenderId: "211091351218",
+    appId         : "1:211091351218:web:bba1de2cbfa6e26f464bab",
+    measurementId : "G-817LNYXHRB",
+    /* Firestore ka region — Cloud Function jahan deploy hoga */
+    region        : "asia-south1",
+  },
+
+  /* ============================================================
+     RAZORPAY
+     ============================================================ */
+  RAZORPAY: {
+    /* KEY ID — ye client me reh sakta hai (public) */
+    key_id : "rzp_test_TfTNHTZ21d4UtB",
+
+    /* ⚠️ KEY SECRET KABHI IS FILE ME MAT DAALO.
+       Secret server par (Cloud Functions) rakha jata hai:
+         firebase functions:config:set razorpay.secret="rzp_test_XXXXXXXX"
+       Ya .env / Secret Manager use karo. */
+    key_secret: "",
+
+    /* Currency + company details (receipt me dikhta hai) */
+    currency  : "INR",
+    company   : "SR Codematrix",
+    themeColor: "#4f46e5",
+  },
 
   /* ---------- behaviour ---------- */
   SHOW_INTRO        : true,   // home page par intro splash
@@ -449,6 +481,315 @@ const SR_CONFIG = {
 
 /* window par bhi rakho (admin.js / header.js isi se padhte hain) */
 window.SR_CONFIG = SR_CONFIG;
+
+
+
+
+/* ============================================================
+   SR CODEMATRIX — FIREBASE LAYER
+   ------------------------------------------------------------
+   • Config khaali / SDK load na ho → site local (offline) mode
+     me chalti rehti hai. Kuch tootta nahi.
+   • Config bhara + SDK load → asli Auth + Firestore + Functions.
+
+   Ye file sirf ek wrapper hai — baaki sab code (auth.js,
+   dashboard.js, razorpay.js) isi se baat karte hain.
+   ============================================================ */
+
+const SRFB = {
+
+  state : 'idle',        // idle → loading → ready | off
+  app   : null,
+  auth  : null,
+  db    : null,
+  fns   : null,
+  _waiters: [],
+
+  /* ---------- config hai bhi ya nahi ---------- */
+  configured(){
+    const f = (window.SR_CONFIG || {}).FIREBASE;
+    return !!(f && f.apiKey && f.projectId && f.appId);
+  },
+
+  ready(){ return this.state === 'ready'; },
+  off()  { return this.state === 'off';   },
+
+  /* ---------- SDK load (compat build = simple classic scripts) ---------- */
+  init(){
+    if(!this.configured()){ this.state = 'off'; this._flush(); return; }
+    if(this.state === 'loading' || this.state === 'ready') return;
+
+    this.state = 'loading';
+    const V = '10.14.1';
+    const files = [
+      `https://www.gstatic.com/firebasejs/${V}/firebase-app-compat.js`,
+      `https://www.gstatic.com/firebasejs/${V}/firebase-auth-compat.js`,
+      `https://www.gstatic.com/firebasejs/${V}/firebase-firestore-compat.js`,
+      `https://www.gstatic.com/firebasejs/${V}/firebase-functions-compat.js`,
+    ];
+
+    let left = files.length;
+    const done = ()=>{
+      if(--left > 0) return;
+      try{
+        const cfg = SR_CONFIG.FIREBASE;
+        if(!firebase.apps.length) firebase.initializeApp(cfg);
+        this.app  = firebase.app();
+        this.auth = firebase.auth();
+        this.db   = firebase.firestore();
+        this.fns  = firebase.app().functions(SR_CONFIG.FIREBASE.region || 'asia-south1');
+        this.state = 'ready';
+        this._flush();
+      }catch(e){
+        console.warn('Firebase init fail:', e);
+        this.state = 'off'; this._flush();
+      }
+    };
+
+    files.forEach(src=>{
+      const s = document.createElement('script');
+      s.src = src; s.async = false;          // order matters
+      s.onload  = done;
+      s.onerror = ()=>{ this.state = 'off'; this._flush(); };
+      document.head.appendChild(s);
+    });
+  },
+
+  /* jab ready/off ho jaye to pending callbacks chalao */
+  _flush(){ (this._waiters.splice(0)).forEach(f=> f()); },
+  whenReady(fn){
+    if(this.state === 'ready' || this.state === 'off') fn();
+    else this._waiters.push(fn);
+  },
+
+  /* ============================================================
+     AUTH
+     ============================================================ */
+  currentUser(){ return this.ready() ? this.auth.currentUser : null; },
+
+  onAuth(fn){
+    if(!this.ready()) return;
+    this.auth.onAuthStateChanged(fn);
+  },
+
+  /* Google popup login */
+  async signInGoogle(){
+    if(!this.ready()) throw new Error('Firebase ready nahi hai');
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const r = await this.auth.signInWithPopup(provider);
+    return r.user;
+  },
+
+  async signOut(){
+    if(this.ready()) { try{ await this.auth.signOut(); }catch(e){} }
+  },
+
+  /* ============================================================
+     FIRESTORE — paths
+     ============================================================ */
+  col(name){ return this.db.collection(name); },
+
+  /* user ka document (role, referral code, wallet yahan) */
+  userDoc(uid){ return this.db.collection('users').doc(uid); },
+
+  async ensureUser(u){
+    if(!this.ready() || !u) return null;
+    const ref = this.userDoc(u.uid);
+    const snap = await ref.get();
+    if(!snap.exists){
+      await ref.set({
+        uid      : u.uid,
+        name     : u.displayName || 'User',
+        email    : u.email || '',
+        photo    : u.photoURL || null,
+        provider : (u.providerData[0] || {}).providerId || 'google',
+        role     : 'client',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      });
+      return await ref.get();
+    }
+    return snap;
+  },
+
+  /* ---------- orders ---------- */
+  async myOrders(uid){
+    if(!this.ready()) return [];
+    const s = await this.db.collection('orders')
+      .where('uid','==',uid).orderBy('createdAt','desc').limit(100).get();
+    return s.docs.map(d=>({ id:d.id, ...d.data() }));
+  },
+
+  /* ---------- earnings (server se likhi jati hai, client padh sakta hai) ---------- */
+  async myEarnings(uid){
+    if(!this.ready()) return null;
+    const s = await this.db.collection('earnings').doc(uid).get();
+    return s.exists ? s.data() : null;
+  },
+
+  /* ============================================================
+     CLOUD FUNCTIONS
+     ============================================================ */
+  callable(name){
+    if(!this.ready()) throw new Error('Firebase ready nahi hai');
+    return this.fns.httpsCallable(name);
+  },
+};
+
+window.SRFB = SRFB;
+
+/* auto-init (config ho to) */
+if(document.readyState === 'loading')
+  document.addEventListener('DOMContentLoaded', ()=> SRFB.init());
+else SRFB.init();
+
+
+
+
+/* ============================================================
+   SR CODEMATRIX — RAZORPAY CHECKOUT
+   ------------------------------------------------------------
+   FLOW (secure):
+     1) client  →  Cloud Function "createRazorpayOrder"  (amount server
+                  par verify hota hai, phir Razorpay order banta hai)
+     2) client  →  Razorpay checkout popup (key_id public hai)
+     3) client  →  Cloud Function "verifyRazorpayPayment"
+                  (signature key_secret se verify hoti hai — secret
+                   kabhi client me nahi jata)
+     4) function →  Firestore me order + earnings likhta hai
+                  (client inhe directly likh hi nahi sakta)
+
+   Razorpay load na ho / config khaali → site local mode me chalti hai.
+   ============================================================ */
+
+const SRPay = {
+
+  _loading: null,
+
+  configured(){
+    const r = (window.SR_CONFIG || {}).RAZORPAY;
+    return !!(r && r.key_id && r.key_id.trim() !== '');
+  },
+
+  /* ---------- Razorpay checkout.js load karo ---------- */
+  load(){
+    if(window.Razorpay) return Promise.resolve(true);
+    if(this._loading) return this._loading;
+    this._loading = new Promise(res=>{
+      const s = document.createElement('script');
+      s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      s.onload  = ()=> res(true);
+      s.onerror = ()=> res(false);
+      document.head.appendChild(s);
+    });
+    return this._loading;
+  },
+
+  /* ============================================================
+     PAY  — { amount, item, kind, notes, onSuccess, onDismiss }
+     ============================================================ */
+  async pay(o){
+    const R = SR_CONFIG.RAZORPAY || {};
+
+    if(!this.configured()){
+      SRToast('Payment abhi setup nahi hai — config.js me Razorpay key daalo.', 'err', 'Setup Required');
+      return false;
+    }
+    if(!SR_CONFIG.ENABLE_ORDERS){
+      SRToast('Orders abhi band hain.', 'err'); return false;
+    }
+
+    const ok = await this.load();
+    if(!ok){ SRToast('Razorpay load nahi hua — internet check karo.', 'err'); return false; }
+
+    const u  = SRAuth.getUser();
+    if(!u){ SRToast('Pehle login karo.', 'err', 'Login Required'); return false; }
+
+    const amount = Math.round(Number(o.amount) || 0);
+    if(amount <= 0){ SRToast('Amount sahi nahi hai.', 'err'); return false; }
+
+    /* ---------- 1. server par order banao ---------- */
+    let order;
+    try{
+      const fn = SRFB.callable('createRazorpayOrder');
+      const r  = await fn({
+        amount,
+        item : o.item,
+        kind : o.kind || 'template',
+        notes: o.notes || {},
+      });
+      order = r.data;
+      if(!order || !order.orderId) throw new Error('orderId nahi mila');
+    }catch(e){
+      console.warn('createRazorpayOrder:', e);
+      SRToast('Order create nahi ho paya: ' + (e.message || 'server error'), 'err');
+      return false;
+    }
+
+    /* ---------- 2. Razorpay checkout ---------- */
+    return new Promise(resolve=>{
+      const rzp = new Razorpay({
+        key         : R.key_id,
+        amount      : order.amount,          // paise me (server se aaya)
+        currency    : order.currency || R.currency || 'INR',
+        name        : R.company || 'SR Codematrix',
+        description : o.item,
+        order_id    : order.orderId,
+        prefill     : {
+          name  : u.name  || '',
+          email : u.email || '',
+          contact: (o.notes && o.notes.phone) || '',
+        },
+        notes       : Object.assign({ item:o.item }, o.notes || {}),
+        theme       : { color: R.themeColor || '#4f46e5' },
+
+        handler: async (resp)=>{
+          /* ---------- 3. server par verify karo ---------- */
+          try{
+            const fn = SRFB.callable('verifyRazorpayPayment');
+            const r  = await fn({
+              razorpay_order_id  : resp.razorpay_order_id,
+              razorpay_payment_id: resp.razorpay_payment_id,
+              razorpay_signature : resp.razorpay_signature,
+            });
+            SRToast('Payment successful! Order confirm ho gaya.', 'ok', 'Paid ✅');
+            o.onSuccess && o.onSuccess(r.data);
+            resolve(true);
+          }catch(e){
+            console.warn('verifyRazorpayPayment:', e);
+            SRToast('Payment ho gaya par verify nahi hua — hum check karenge. ' +
+                    'Payment ID: ' + resp.razorpay_payment_id, 'err', 'Verify Failed');
+            resolve(false);
+          }
+        },
+
+        modal: {
+          ondismiss: ()=>{ SRToast('Payment cancel kar di.'); o.onDismiss && o.onDismiss(); resolve(false); }
+        }
+      });
+
+      rzp.on('payment.failed', (resp)=>{
+        SRToast('Payment fail: ' + ((resp.error && resp.error.description) || 'unknown'), 'err');
+        resolve(false);
+      });
+
+      rzp.open();
+    });
+  },
+
+  /* ---------- local mode me "enquiry" banao (payment ke bina) ---------- */
+  fallbackEnquiry(item, amount){
+    const u = SRAuth.getUser();
+    SRStore.add({
+      item, amount, email: u ? u.email : '',
+      status: 'Enquiry', payMode: 'whatsapp'
+    });
+    SRToast('Enquiry save ho gayi — WhatsApp par payment details bhej denge.', 'ok', 'Enquiry');
+    return true;
+  },
+};
+
+window.SRPay = SRPay;
 
 
 
@@ -684,7 +1025,47 @@ const SRStore = {
     return o;
   },
   byEmail(email){ return email ? this.all().filter(o => o.email === email) : this.all(); },
-  total(){ return this.all().reduce((s,o)=> s + (Number(o.amount)||0), 0); }
+  total(){ return this.all().reduce((s,o)=> s + (Number(o.amount)||0), 0); },
+  clear(){ localStorage.removeItem(this.key); },
+
+  /* ============================================================
+     ENQUIRY — Firestore me save (payment se pehle ka quote)
+     firestore.rules me 'enquiries' create allowed hai.
+     ============================================================ */
+  async enquiry(data){
+    const u = SRAuth.getUser();
+    const rec = Object.assign({
+      name  : (u && u.name)  || '',
+      email : (u && u.email) || '',
+      phone : '',
+      biz   : '',
+      cat   : '',
+      note  : '',
+      type  : '',
+      amount: null,
+      source: 'web',
+      date  : todayISO(),
+    }, data);
+
+    /* local copy hamesha */
+    this.add({ item: rec.type || 'Custom Enquiry', amount: rec.amount,
+               email: rec.email, status:'Enquiry' });
+
+    /* Firestore */
+    if(window.SRFB && SRFB.ready()){
+      try{
+        await SRFB.col('enquiries').add(Object.assign(rec, {
+          uid      : (u && u.uid) || null,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        }));
+        return { ok:true, remote:true };
+      }catch(e){
+        console.warn('enquiry save fail:', e);
+        return { ok:true, remote:false, error:e.message };
+      }
+    }
+    return { ok:true, remote:false };
+  },
 };
 window.SRStore = SRStore;
 
@@ -747,23 +1128,39 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
 
 /* ============================================================
-   SR CODEMATRIX — AUTH (Google OAuth 2.0)
+   SR CODEMATRIX — AUTH
    ------------------------------------------------------------
-   • GOOGLE_CLIENT_ID bhara  → asli Google Sign-In
-   • GOOGLE_CLIENT_ID khaali → "Setup Required" + Guest preview
+   PRIORITY:
+     1) Firebase Auth (asli Google login + Firestore user doc)
+     2) Raw Google OAuth (GOOGLE_CLIENT_ID) — agar Firebase off ho
+     3) Guest preview (sirf local session)
+
    (koi demo/fake account nahi — sab real data)
    ============================================================ */
 
 const SRAuth = {
 
-  ready(){
-    return !!SR_CONFIG.GOOGLE_CLIENT_ID && SR_CONFIG.GOOGLE_CLIENT_ID.trim() !== "";
+  /* ---------- kaun sa mode chal raha hai ---------- */
+  mode(){
+    if(window.SRFB && SRFB.configured()) return 'firebase';
+    if(SR_CONFIG.GOOGLE_CLIENT_ID && SR_CONFIG.GOOGLE_CLIENT_ID.trim() !== '') return 'google';
+    return 'local';
   },
 
+  ready(){
+    return this.mode() !== 'local';
+  },
+
+  /* ---------- local session (fallback) ---------- */
   getUser(){
     try { return JSON.parse(localStorage.getItem('srcm_user') || 'null'); }
     catch(e){ return null; }
   },
+  save(u){
+    u.loggedAt = new Date().toISOString();
+    localStorage.setItem('srcm_user', JSON.stringify(u));
+  },
+  _clearLocal(){ localStorage.removeItem('srcm_user'); },
 
   initials(name="?"){
     return name.trim().split(/\s+/).map(w=>w[0]).slice(0,2).join("").toUpperCase();
@@ -781,12 +1178,57 @@ const SRAuth = {
     return `<span class="avatar ${cls}" style="background:${user.picture ? '#fff' : this.colorFor(user.email||user.name)}">${inner}</span>`;
   },
 
-  save(u){
-    u.loggedAt = new Date().toISOString();
-    localStorage.setItem('srcm_user', JSON.stringify(u));
+  /* ============================================================
+     GOOGLE SIGN-IN
+     ============================================================ */
+  async googleSignIn(){
+    if(this.mode() === 'firebase'){
+      try{
+        SRToast('Google se sign-in ho raha hai…', 'ok', 'Please wait');
+        const u = await SRFB.signInGoogle();
+        await this._firebaseSession(u);
+      }catch(e){
+        console.warn('firebase signin:', e);
+        const msg = (e.code === 'auth/popup-blocked')
+          ? 'Popup block ho gaya — browser me allow karo.'
+          : (e.code === 'auth/unauthorized-domain')
+            ? 'Ye domain Firebase Auth me add nahi hai (Console → Authentication → Settings → Authorized domains).'
+            : (e.message || 'Sign-in fail');
+        SRToast(msg, 'err');
+      }
+      return;
+    }
+    /* ---- fallback: raw Google OAuth ---- */
+    if(this.mode() === 'local'){
+      SRToast('Pehle config.js me Firebase ya Google Client ID daalo.', 'err', 'Setup Required');
+      return;
+    }
+    if(!window.google?.accounts?.id){
+      SRToast('Google abhi load ho raha hai — 2 second baad try karo.', 'err'); return;
+    }
+    google.accounts.id.prompt();
   },
 
-  /* ---------- Google JWT ---------- */
+  /* Firebase user → local session mirror (header/dashboard isi se chalte hain) */
+  async _firebaseSession(u){
+    let profile = null;
+    try{ profile = await SRFB.ensureUser(u); }catch(e){ console.warn(e); }
+    const d = (profile && profile.data && profile.data()) || profile || {};
+    this.save({
+      uid     : u.uid,
+      name    : d.name     || u.displayName || 'User',
+      email   : d.email    || u.email || '',
+      picture : d.photo    || u.photoURL || null,
+      provider: 'google',
+      role    : d.role     || 'client',
+      referral: d.referralCode || '',
+    });
+    this.paintHeader();
+    SRToast(`Welcome ${(u.displayName||'User').split(' ')[0]}!`, 'ok', 'Signed in');
+    setTimeout(()=> this.go('dashboard'), 700);
+  },
+
+  /* ---------- raw Google JWT (fallback mode) ---------- */
   handleCredential(resp){
     if(!resp || !resp.credential){
       SRToast("Google sign-in complete nahi hua. Dobara try karo.", "err"); return;
@@ -794,44 +1236,49 @@ const SRAuth = {
     try{
       const p = JSON.parse(atob(resp.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
       this.save({
-        name : p.name || "User",
-        email: p.email || "",
-        picture: p.picture || null,
-        provider: "google",
-        role : "Client",
+        name : p.name || "User", email: p.email || "", picture: p.picture || null,
+        provider: "google", role : "Client",
       });
       SRToast(`Welcome ${(p.name||"User").split(' ')[0]}!`, "ok", "Signed in");
-      setTimeout(()=> SRGo('dashboard'), 700);
+      setTimeout(()=> this.go('dashboard'), 700);
     }catch(e){
       SRToast("Login decode nahi ho paya. Dobara try karo.", "err");
     }
   },
 
-  /* ---------- Guest preview (koi fake data nahi, sirf session) ---------- */
+  /* ---------- Guest preview (sirf local session, koi server data nahi) ---------- */
   guest(){
     if(!SR_CONFIG.ALLOW_GUEST){
       SRToast("Guest preview band hai. Google se login karo.", "err"); return;
     }
     this.save({ name:"Guest", email:"", picture:null, provider:"guest", role:"Preview" });
-    SRGo('dashboard');
+    this.go('dashboard');
   },
 
-  signOut(){
-    if(window.google?.accounts?.id) google.accounts.id.disableAutoSelect();
-    localStorage.removeItem('srcm_user');
+  async signOut(){
+    try{ await SRFB.signOut(); }catch(e){}
+    this._clearLocal();
     SRToast("Signed out ho gaye.");
-    setTimeout(()=> SRGo('index'), 600);
+    setTimeout(()=> this.go('index'), 600);
   },
 
   requireAuth(){
     const u = this.getUser();
-    if(!u){ SRGo('login'); return null; }
+    if(!u){ this.go('login'); return null; }
     return u;
   },
 
-  /* ---------- Google SDK ---------- */
+  /* ---------- navigation (single-file router + multi-file dono me chale) ---------- */
+  go(page){
+    if(location.hash && document.getElementById('srPage')) location.hash = page;
+    else location.href = page + '.html';
+  },
+
+  /* ============================================================
+     GOOGLE SDK (fallback mode me hi chahiye)
+     ============================================================ */
   loadGoogle(){
-    if(!this.ready()) return;
+    if(this.mode() !== 'google') return;
     if(document.getElementById('gis')) return;
     const s = document.createElement('script');
     s.id = 'gis'; s.src = "https://accounts.google.com/gsi/client"; s.async = true; s.defer = true;
@@ -843,8 +1290,7 @@ const SRAuth = {
           auto_select: false, cancel_on_tap_outside: true,
         });
         document.querySelectorAll('.gbtn').forEach(b=>{
-          b.disabled = false;
-          b.classList.remove('is-disabled');
+          b.disabled = false; b.classList.remove('is-disabled');
         });
       }catch(e){ console.warn("GIS init error:", e); }
     };
@@ -852,35 +1298,29 @@ const SRAuth = {
     document.head.appendChild(s);
   },
 
-  googleSignIn(){
-    if(!this.ready()){
-      SRToast("Pehle config.js me Google Client ID daalo.", "err", "Setup Required");
-      return;
-    }
-    if(!window.google?.accounts?.id){
-      SRToast("Google abhi load ho raha hai — 2 second baad try karo.", "err"); return;
-    }
-    google.accounts.id.prompt();
-  },
-
-  /* ---------- header (nav + drawer) ---------- */
+  /* ============================================================
+     HEADER (nav + drawer)
+     ============================================================ */
   paintHeader(){
     const u = this.getUser();
+    const dashHref = document.getElementById('srPage') ? '#dashboard' : 'dashboard.html';
+    const loginHref= document.getElementById('srPage') ? '#login'    : 'login.html';
     document.querySelectorAll('[data-auth-slot]').forEach(slot=>{
       if(u){
         slot.innerHTML = `
-          <button class="chip" onclick="SRGo('dashboard')" title="Dashboard">
+          <button class="chip" onclick="SRAuth.go('dashboard')" title="Dashboard">
             ${this.avatarHTML(u)}<span>${u.name.split(' ')[0]}</span>
           </button>
           <button class="btn btn-ghost btn-sm" onclick="SRAuth.signOut()">Sign out</button>`;
       }else{
-        slot.innerHTML = `<a href="#login" class="btn btn-primary btn-sm">Login</a>`;
+        slot.innerHTML = `<a href="${loginHref}" class="btn btn-primary btn-sm">Login</a>`;
       }
     });
   },
 
-  /* ---------- page-level buttons (login page) ----------
-     Single-file bundle me router har page par ye dubara call karta hai. */
+  /* ============================================================
+     PAGE-LEVEL BUTTONS (login page)
+     ============================================================ */
   bindPage(){
     document.querySelectorAll('.gbtn').forEach(b=>{
       b.addEventListener('click', e=>{ e.preventDefault(); SRAuth.googleSignIn(); });
@@ -892,19 +1332,40 @@ const SRAuth = {
     /* login page par status note */
     const note = document.getElementById('oauthNote');
     if(note){
-      note.className = SRAuth.ready() ? "notice ok" : "notice";
-      note.innerHTML = SRAuth.ready()
-        ? `<b>● LIVE</b> — Google Sign-In ready hai. Neeche button dabao.`
-        : `<b>● SETUP REQUIRED</b><br>
-           Google login abhi inactive hai. <code>assets/js/config.js</code> kholo aur
-           <code>GOOGLE_CLIENT_ID</code> me apna Client ID daalo
-           (banane ka tareeka README.md me hai).`;
+      const m = this.mode();
+      note.className = (m === 'local') ? "notice" : "notice ok";
+      note.innerHTML =
+        m === 'firebase'
+          ? `<b>● LIVE (Firebase)</b> — asli Google Sign-In ready hai. Neeche button dabao.`
+          : m === 'google'
+            ? `<b>● LIVE (Google OAuth)</b> — asli Google Sign-In ready hai. Neeche button dabao.`
+            : `<b>● SETUP REQUIRED</b><br>
+               Login abhi inactive hai. <code>assets/js/config.js</code> kholo aur
+               <code>FIREBASE</code> block bharein (ya <code>GOOGLE_CLIENT_ID</code> daalo).`;
     }
+  },
+
+  /* ---------- Firebase auth state change → session mirror ---------- */
+  watchFirebase(){
+    if(this.mode() !== 'firebase') return;
+    SRFB.whenReady(()=>{
+      SRFB.onAuth(async u=>{
+        if(u){
+          const cur = this.getUser();
+          if(!cur || cur.uid !== u.uid) await this._firebaseSession(u);
+          else this.paintHeader();
+        }else{
+          if(this.getUser() && this.getUser().provider === 'google') this._clearLocal();
+          this.paintHeader();
+        }
+      });
+    });
   },
 };
 
 document.addEventListener('DOMContentLoaded', ()=>{
   SRAuth.loadGoogle();
+  SRAuth.watchFirebase();
   SRAuth.paintHeader();
   SRAuth.bindPage();
 });
@@ -1121,14 +1582,14 @@ function SRReady(fn){ try{ fn(); }catch(e){ console.error(e); } }
 function SRGo(name){ location.hash = name; }
 
 const SRPAGES = {
-  index: "<!-- ================= INTRO ================= -->\n\n\n\n\n\n\n  \n\n\n\n\n<!-- ================= HERO ================= -->\n<section class=\"hero mesh\">\n  <span class=\"blob b1\"></span><span class=\"blob b2\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"hero-grid\">\n      <div>\n        <span class=\"eyebrow\"><span class=\"dot\"></span> <span id=\"heroEyebrow\">Website Sell · Website Build</span></span>\n        <h1 class=\"mt-16\">\n          <span id=\"hL1\">Website</span> <span class=\"grad-text\" id=\"hH1\">kharido</span><br>\n          <span id=\"hL2\">ya</span> <span class=\"grad-text cool\" id=\"hH2\">banvayein</span>\n        </h1>\n        <p class=\"lead\" id=\"heroSub\">Ready-made template chuno ya apni requirement batao — design, hosting, domain, payment gateway aur maintenance sab ek hi jagah.</p>\n\n        <div class=\"row mt-24\">\n          <a class=\"btn btn-primary\" id=\"cta1\" href=\"store.html\">\n            <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z\"></path><path d=\"M3 6h18M16 10a4 4 0 0 1-8 0\"></path></svg>\n            <span id=\"cta1t\">Website Store Dekho</span>\n          </a>\n          <a class=\"btn btn-ghost\" id=\"cta2\" href=\"order.html\"><span id=\"cta2t\">Custom Banvayein</span> →</a>\n        </div>\n\n        <div class=\"hero-badges\" id=\"heroBadges\"><span class=\"pill\">data.js → hero.badges</span></div>\n      </div>\n\n      <!-- CSS/SVG showcase graphics -->\n      <div class=\"showcase\">\n        <div class=\"hero-main-card\">\n          <div class=\"browser\"><i style=\"background:#f43f5e\"></i><i style=\"background:#f59e0b\"></i><i style=\"background:#10b981\"></i></div>\n          <div class=\"skel\"><i></i><i></i><i></i><i></i><i></i></div>\n        </div>\n        <div class=\"float-card fc1\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#f59e0b,#f97316)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></span>\n          <div><b>Lightning Fast</b><span>95+ PageSpeed</span></div>\n        </div>\n        <div class=\"float-card fc2\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#10b981,#14b8a6)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></span>\n          <div><b>Secure by Default</b><span>SSL + daily backup</span></div>\n        </div>\n        <div class=\"float-card fc3\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#ec4899,#f43f5e)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M3 3v18h18\"></path><path d=\"m7 14 4-4 3 3 5-6\"></path></svg></span>\n          <div><b>SEO + Growth</b><span>Rank on Google</span></div>\n        </div>\n      </div>\n    </div>\n\n    <div class=\"stat-grid\" id=\"statGrid\">\n        <div class=\"stat in\" data-reveal=\"\" data-delay=\"0\">\n          <b style=\"color:#c7d2fe\">—</b><span>data.js → stats</span>\n        </div>\n        <div class=\"stat in\" data-reveal=\"\" data-delay=\"70\">\n          <b style=\"color:#c7d2fe\">—</b><span>data.js → stats</span>\n        </div>\n        <div class=\"stat in\" data-reveal=\"\" data-delay=\"140\">\n          <b style=\"color:#c7d2fe\">—</b><span>data.js → stats</span>\n        </div>\n        <div class=\"stat in\" data-reveal=\"\" data-delay=\"210\">\n          <b style=\"color:#c7d2fe\">—</b><span>data.js → stats</span>\n        </div></div>\n  </div>\n</section>\n<div id=\"wave1\" style=\"margin-top: -70px; margin-bottom: -1px; position: relative; z-index: 3; line-height: 0;\"><div class=\"wave\"><svg viewBox=\"0 0 1200 70\" preserveAspectRatio=\"none\" style=\"transform:\">\n    <path fill=\"#eef2ff\" d=\"M0,32 C180,70 340,0 600,26 C860,52 1040,10 1200,38 L1200,70 L0,70 Z\"></path>\n  </svg></div></div>\n\n<!-- ================= DO RAASTE ================= -->\n<section class=\"section tint tint-indigo\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Do raaste — aap choose karo</span>\n      <h2 class=\"h2 mt-16\">Sirf website nahi, <span class=\"grad-text\">poora business</span></h2>\n      <p>Template kharido ya scratch se banvayein — dono ka rasta yahin se shuru hota hai.</p>\n    </div>\n    <div class=\"grid g2\" id=\"pathsGrid\">\n    <div class=\"card card-hover c-indigo in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"ic i-indigo\"><svg viewBox=\"0 0 24 24\"><path d=\"M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z\"></path><path d=\"M3 6h18M16 10a4 4 0 0 1-8 0\"></path></svg></span>\n      <h3 class=\"h3\">1️⃣ Website Kharido (Ready-Made)</h3>\n      <p class=\"muted mt-8\">Professionally designed templates — bas apna brand name, photos aur content dalna hai.</p>\n      <div class=\"empty sm mt-16\"><p>Apne points add karo: <code>data.js → paths[0].points</code></p></div>\n      <a href=\"store.html\" class=\"btn btn-primary btn-block mt-24\">Store Explore Karo</a>\n    </div>\n    <div class=\"card card-hover c-violet in\" data-reveal=\"\" data-delay=\"90\">\n      <span class=\"ic i-violet\"><svg viewBox=\"0 0 24 24\"><path d=\"m16 18 6-6-6-6M8 6l-6 6 6 6\"></path></svg></span>\n      <h3 class=\"h3\">2️⃣ Website Banvayein (Custom)</h3>\n      <p class=\"muted mt-8\">Aap batao kya chahiye — hum design, develop aur launch kar denge.</p>\n      <div class=\"empty sm mt-16\"><p>Apne points add karo: <code>data.js → paths[1].points</code></p></div>\n      <a href=\"order.html\" class=\"btn btn-primary btn-block mt-24\">Quote Calculator Kholo</a>\n    </div></div>\n  </div>\n</section>\n<div id=\"wave2\" style=\"margin-top: -70px; margin-bottom: -1px; position: relative; z-index: 3; line-height: 0;\"><div class=\"wave\"><svg viewBox=\"0 0 1200 70\" preserveAspectRatio=\"none\" style=\"transform:\">\n    <path fill=\"#faf5ff\" d=\"M0,32 C180,70 340,0 600,26 C860,52 1040,10 1200,38 L1200,70 L0,70 Z\"></path>\n  </svg></div></div>\n\n<!-- ================= CORE FEATURES ================= -->\n<section class=\"section tint tint-violet\">\n  <span class=\"blob b4\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Core Features</span>\n      <h2 class=\"h2 mt-16\">Har website me <span class=\"grad-text warm\">ye sab built-in</span></h2>\n      <p>Basic package me hi milta hai — koi extra charge nahi.</p>\n    </div>\n    <div class=\"grid g3\" id=\"coreGrid\">\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"ic i-indigo\"><svg viewBox=\"0 0 24 24\"><path d=\"M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z\"></path><path d=\"M11 18h2\"></path></svg></span>\n      <h4>Mobile-First Responsive</h4>\n      <p class=\"muted small mt-8\">Mobile, tablet, laptop — har screen pe perfect.</p>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"60\">\n      <span class=\"ic i-green\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 2l9 4v6c0 5-3.8 8.6-9 10-5.2-1.4-9-5-9-10V6z\"></path><path d=\"M9 12l2 2 4-4\"></path></svg></span>\n      <h4>Free SSL + Security</h4>\n      <p class=\"muted small mt-8\">HTTPS lock, firewall aur daily backup.</p>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"120\">\n      <span class=\"ic i-amber\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 3v18h18\"></path><path d=\"m7 14 4-4 3 3 5-6\"></path></svg></span>\n      <h4>SEO Ready</h4>\n      <p class=\"muted small mt-8\">Search Console, sitemap, meta tags — sab set.</p>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"180\">\n      <span class=\"ic i-violet\"><svg viewBox=\"0 0 24 24\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"16\" rx=\"2\"></rect><path d=\"m2 7 10 6 10-6\"></path></svg></span>\n      <h4>Business Email</h4>\n      <p class=\"muted small mt-8\">you@yourcompany.in jaisi professional email.</p>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"240\">\n      <span class=\"ic i-cyan\"><svg viewBox=\"0 0 24 24\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"></path></svg></span>\n      <h4>WhatsApp Chat</h4>\n      <p class=\"muted small mt-8\">Visitor seedha WhatsApp pe message kare.</p>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"300\">\n      <span class=\"ic i-pink\"><svg viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"></rect><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"></rect></svg></span>\n      <h4>Admin Dashboard</h4>\n      <p class=\"muted small mt-8\">Khud content badlo — coding ki zarurat nahi.</p>\n    </div></div>\n    <div class=\"center mt-32\"><a href=\"features.html\" class=\"btn btn-outline\">Poori Feature List (110+) →</a></div>\n  </div>\n</section>\n\n<!-- ================= WHY CHOOSE ================= -->\n<section class=\"section-sm tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"grid g4\" id=\"whyGrid\">\n    <div class=\"card card-hover c-amber in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"ic i-amber\"><svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></span>\n      <h4>Fast Delivery</h4>\n      <p class=\"muted small mt-8\">Jo vaada kiya, waqt par milta hai.</p>\n    </div>\n    <div class=\"card card-hover c-green in\" data-reveal=\"\" data-delay=\"60\">\n      <span class=\"ic i-green\"><svg viewBox=\"0 0 24 24\"><ellipse cx=\"12\" cy=\"6\" rx=\"8\" ry=\"3\"></ellipse><path d=\"M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6\"></path><path d=\"M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6\"></path></svg></span>\n      <h4>Transparent Rate</h4>\n      <p class=\"muted small mt-8\">Koi hidden charge nahi — jo likha wahi.</p>\n    </div>\n    <div class=\"card card-hover c-indigo in\" data-reveal=\"\" data-delay=\"120\">\n      <span class=\"ic i-indigo\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 2a10 10 0 1 0 10 10h-4a6 6 0 1 1-6-6z\"></path><circle cx=\"12\" cy=\"12\" r=\"2\"></circle></svg></span>\n      <h4>24×7 Support</h4>\n      <p class=\"muted small mt-8\">WhatsApp, call ya email — hum hamesha yahan.</p>\n    </div>\n    <div class=\"card card-hover c-pink in\" data-reveal=\"\" data-delay=\"180\">\n      <span class=\"ic i-pink\"><svg viewBox=\"0 0 24 24\"><path d=\"m12 2 3 6.5 7 .8-5 4.7 1.3 7L12 17.8 5.7 21l1.3-7-5-4.7 7-.8z\"></path></svg></span>\n      <h4>Quality First</h4>\n      <p class=\"muted small mt-8\">Har site speed, SEO aur security tested.</p>\n    </div></div>\n  </div>\n</section>\n\n<!-- ================= INCOME PREVIEW ================= -->\n<section class=\"section tint tint-peach\">\n  <span class=\"blob b2\"></span>\n  <div class=\"wrap\">\n    <div class=\"head\">\n      <span class=\"eyebrow amber\"><span class=\"dot\"></span> Multi Income Model</span>\n      <h2 class=\"h2 mt-16\">Sirf kharcha nahi — <span class=\"grad-text warm\">kamaai bhi</span></h2>\n      <p>Ek platform, 8 alag-alag income sources. Client bano, reseller bano, ya partner.</p>\n    </div>\n    <div class=\"grid g4\" id=\"incomePreview\">\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"pill c1\">01</span>\n      <h4 class=\"mt-12\">Ready Template Sales</h4>\n      <p class=\"muted small mt-8\">Ek baar design karo, baar baar becho. Har sale par poori amount aapki.…</p>\n      <div class=\"pot mt-12\" style=\"display:inline-block\">—</div>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"70\">\n      <span class=\"pill c2\">02</span>\n      <h4 class=\"mt-12\">Custom Website Projects</h4>\n      <p class=\"muted small mt-8\">Client ki requirement ke hisaab se site banakar dena. Sabse zyada margin isi me …</p>\n      <div class=\"pot mt-12\" style=\"display:inline-block\">—</div>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"140\">\n      <span class=\"pill c3\">03</span>\n      <h4 class=\"mt-12\">Hosting + Domain Reselling</h4>\n      <p class=\"muted small mt-8\">Har website ko hosting chahiye — aur wo har saal renew hoti hai. Sabse stable in…</p>\n      <div class=\"pot mt-12\" style=\"display:inline-block\">—</div>\n    </div>\n    <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"210\">\n      <span class=\"pill c4\">04</span>\n      <h4 class=\"mt-12\">AMC / Maintenance Plans</h4>\n      <p class=\"muted small mt-8\">Monthly care plan — backup, updates, security, chhote changes.…</p>\n      <div class=\"pot mt-12\" style=\"display:inline-block\">—</div>\n    </div></div>\n    <div class=\"center mt-32\"><a href=\"earnings.html\" class=\"btn btn-warm\">Saare 8 Income Sources Dekho →</a></div>\n  </div>\n</section>\n\n<!-- ================= PROCESS ================= -->\n<section class=\"section tint tint-sky\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> Kaise kaam karta hai</span>\n      <h2 class=\"h2 mt-16\">4 simple steps, <span class=\"grad-text cool\">bas itna hi</span></h2>\n    </div>\n    <div class=\"grid g4\" id=\"processGrid\">\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"m21 21-4.3-4.3\"></path></svg></span>\n      <h4>1. Browse / Batao</h4>\n      <p class=\"muted small mt-8\">Store se template chuno ya apna requirement bhejo.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"70\">\n      <span class=\"ic i-cyan\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M2 10h20\"></path></svg></span>\n      <h4>2. Payment</h4>\n      <p class=\"muted small mt-8\">UPI, card, netbanking — 100% secure gateway.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"140\">\n      <span class=\"ic i-violet\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"m16 18 6-6-6-6M8 6l-6 6 6 6\"></path></svg></span>\n      <h4>3. Build &amp; Setup</h4>\n      <p class=\"muted small mt-8\">Design, hosting, domain, SSL sab set karte hain.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"210\">\n      <span class=\"ic i-green\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg></span>\n      <h4>4. Go Live</h4>\n      <p class=\"muted small mt-8\">Training + handover — ab aap khud manage karo.</p>\n    </div></div>\n  </div>\n</section>\n\n<!-- ================= PRICING ================= -->\n<section class=\"section tint tint-rose\">\n  <span class=\"blob b1\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Pricing</span>\n      <h2 class=\"h2 mt-16\">Jeb par bhaari nahi, <span class=\"grad-text\">kaam me solid</span></h2>\n      <p>Koi hidden charge nahi — jo likha hai wahi milega.</p>\n    </div>\n    <div class=\"grid g3\" id=\"plansGrid\">\n    <div class=\"card card-hover c-indigo in\" data-reveal=\"\" data-delay=\"0\" style=\"\">\n      \n      <h3 class=\"h3\">Starter</h3>\n      <div class=\"price mt-8 na\">—\n        </div>\n      <p class=\"muted small\">Chhote business / personal ke liye</p>\n      <div class=\"divider\"></div>\n      <div class=\"empty sm\"><p>Features + price add karo: <code>data.js → plans[0]</code></p></div>\n      <a href=\"order.html\" class=\"btn btn-ghost btn-block mt-24\">\n         Quote Pao</a>\n    </div>\n    <div class=\"card card-hover c-violet in\" data-reveal=\"\" data-delay=\"80\" style=\"background:linear-gradient(180deg,#f5f3ff,#fff);box-shadow:0 20px 50px -20px rgba(124,58,237,.4)\">\n      <span class=\"pill c2\" style=\"position:absolute;top:18px;right:18px\">MOST POPULAR</span>\n      <h3 class=\"h3\">Business</h3>\n      <div class=\"price mt-8 na\">—\n        </div>\n      <p class=\"muted small\">Growing business ke liye best</p>\n      <div class=\"divider\"></div>\n      <div class=\"empty sm\"><p>Features + price add karo: <code>data.js → plans[1]</code></p></div>\n      <a href=\"order.html\" class=\"btn btn-primary btn-block mt-24\">\n         Quote Pao</a>\n    </div>\n    <div class=\"card card-hover c-pink in\" data-reveal=\"\" data-delay=\"160\" style=\"\">\n      \n      <h3 class=\"h3\">Enterprise</h3>\n      <div class=\"price mt-8 na\">—\n        </div>\n      <p class=\"muted small\">E-commerce / portal / SaaS ke liye</p>\n      <div class=\"divider\"></div>\n      <div class=\"empty sm\"><p>Features + price add karo: <code>data.js → plans[2]</code></p></div>\n      <a href=\"order.html\" class=\"btn btn-ghost btn-block mt-24\">\n         Quote Pao</a>\n    </div></div>\n  </div>\n</section>\n\n<!-- ================= TESTIMONIALS ================= -->\n<section class=\"section tint tint-indigo\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Testimonials</span>\n      <h2 class=\"h2 mt-16\">Clients kya kehte hain</h2>\n    </div>\n    <div id=\"testiBox\"><div class=\"empty \">\n    <span class=\"ic \"><svg viewBox=\"0 0 24 24\"><path d=\"M12 5v14M5 12h14\"></path></svg></span>\n    <h4>Abhi koi testimonial nahi hai</h4>\n    <p>Jab real client feedback aaye to yahan add karo: <code>data.js → testimonials</code></p>\n  </div></div>\n  </div>\n</section>\n\n<!-- ================= CTA ================= -->\n<section class=\"section\">\n  <div class=\"wrap\">\n    <div class=\"grad-border\">\n      <div class=\"center\" style=\"padding:52px 30px\">\n        <span class=\"eyebrow\"><span class=\"dot\"></span> Aaj hi shuru karo</span>\n        <h2 class=\"h2 mt-16\">Apni website <span class=\"grad-text\">aaj</span> live karwao</h2>\n        <p class=\"muted mt-12\" style=\"max-width:560px;margin-inline:auto\">\n          Free consultation ke liye WhatsApp karo ya Google account se login kar ke dashboard explore karo.\n        </p>\n        <div class=\"row\" style=\"justify-content:center;margin-top:26px\">\n          <a href=\"login.html\" class=\"btn btn-primary\">Google se Login Karo</a>\n          <a href=\"order.html\" class=\"btn btn-ghost\">Free Quote Pao →</a>\n        </div>\n      </div>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  login: "<main class=\"auth-wrap\">\n  <div class=\"mesh\" style=\"border-radius:26px\">\n    <span class=\"blob b1\"></span><span class=\"blob b2\"></span>\n    <div class=\"auth-card in\" data-reveal=\"\" style=\"position:relative;z-index:3\">\n\n      <div class=\"intro-logo\" style=\"width:66px;height:66px;font-size:21px;border-radius:19px;margin-bottom:18px\" id=\"lgMark\">SR</div>\n      <h2><span id=\"lgName\">SR Codematrix</span> me <span class=\"grad-text\">Welcome</span></h2>\n      <p class=\"muted small\">Login kar ke apna dashboard, orders aur earnings dekho.</p>\n\n      <div class=\"mt-24\">\n        <button class=\"gbtn\" type=\"button\">\n          <svg viewBox=\"0 0 48 48\" aria-hidden=\"true\">\n            <path fill=\"#EA4335\" d=\"M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2.5 24 .5 14.6.5 6.5 5.8 2.6 13.6l7.8 6.1C12.3 13.7 17.6 9.5 24 9.5z\"></path>\n            <path fill=\"#4285F4\" d=\"M46.1 24.5c0-1.6-.1-2.8-.4-4.1H24v8.4h12.5c-.3 2.1-1.6 5.2-4.7 7.3l7.6 5.9c4.5-4.2 6.7-10.3 6.7-17.5z\"></path>\n            <path fill=\"#FBBC05\" d=\"M10.4 28.3A14.6 14.6 0 0 1 9.6 24c0-1.5.3-3 .7-4.3l-7.7-6A23.6 23.6 0 0 0 .5 24c0 3.8.9 7.4 2.5 10.4l7.4-6.1z\"></path>\n            <path fill=\"#34A853\" d=\"M24 47.5c6.2 0 11.5-2 15.4-5.6l-7.6-5.9c-2 1.4-4.8 2.4-7.8 2.4-6.4 0-11.7-4.3-13.6-10.1l-7.4 6.1C6.5 42.2 14.6 47.5 24 47.5z\"></path>\n          </svg>\n          Sign in with Google\n        </button>\n      </div>\n\n      <div id=\"oauthNote\" class=\"notice\"><b>● SETUP REQUIRED</b><br>\n           Google login abhi inactive hai. <code>assets/js/config.js</code> kholo aur\n           <code>GOOGLE_CLIENT_ID</code> me apna Client ID daalo\n           (banane ka tareeka README.md me hai).</div>\n\n      <div class=\"or\">ya</div>\n\n      <button class=\"btn btn-ghost btn-block\" data-guest=\"\">\n        <svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z\"></path><circle cx=\"12\" cy=\"12\" r=\"3\"></circle></svg>\n        Bina login Dashboard Preview Dekho\n      </button>\n      <p class=\"tiny muted mt-12\">Guest mode sirf layout dikhane ke liye hai — koi data save nahi hota server par.</p>\n\n      <div class=\"divider\"></div>\n\n      <div class=\"grid g3\" style=\"gap:10px;text-align:left\">\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-green\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Secure</b><br>OAuth 2.0</div>\n        </div>\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-violet\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Fast</b><br>2 min setup</div>\n        </div>\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-amber\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Earn</b><br>Reseller panel</div>\n        </div>\n      </div>\n    </div>\n  </div>\n</main>\n\n<section class=\"wrap\" style=\"padding-bottom:60px\">\n  <div class=\"grid g3\">\n    <div class=\"card center c-indigo in\" data-reveal=\"\">\n      <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></div>\n      <h4>Secure Login</h4>\n      <p class=\"muted small mt-8\">Google OAuth 2.0 — hum aapka password store hi nahi karte.</p>\n    </div>\n    <div class=\"card center c-violet in\" data-reveal=\"\" data-delay=\"70\">\n      <div class=\"ic i-violet\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></div>\n      <h4>2 Minute Setup</h4>\n      <p class=\"muted small mt-8\">Login → template chuno → payment → live.</p>\n    </div>\n    <div class=\"card center c-pink in\" data-reveal=\"\" data-delay=\"140\">\n      <div class=\"ic i-pink\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg></div>\n      <h4>Reseller Income</h4>\n      <p class=\"muted small mt-8\">Login ke baad referral link + wallet milta hai.</p>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  store: "<!-- HERO -->\n<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Website Store</span>\n      <h1 class=\"h1 mt-16\">Ready website <span class=\"grad-text\">kharido</span></h1>\n      <p>Professionally designed templates — download karo, apna content daalo, live ho jao.\n        Source code + installation support included.</p>\n    </div>\n    <div class=\"grid g3\" style=\"max-width:820px;margin-inline:auto\" id=\"storeMeta\"><div class=\"card center\" style=\"padding:18px\">\n      <div class=\"kicker\">Delivery</div>\n      <b style=\"font-size:20px\">—</b></div><div class=\"card center\" style=\"padding:18px\">\n      <div class=\"kicker\">Templates</div>\n      <b style=\"font-size:20px\">—</b></div><div class=\"card center\" style=\"padding:18px\">\n      <div class=\"kicker\">Licence</div>\n      <b style=\"font-size:20px\">Lifetime</b></div></div>\n  </div>\n</section>\n<div id=\"waveA\" style=\"margin-top: -70px; position: relative; z-index: 3; line-height: 0;\"><div class=\"wave\"><svg viewBox=\"0 0 1200 70\" preserveAspectRatio=\"none\" style=\"transform:\">\n    <path fill=\"#eef2ff\" d=\"M0,32 C180,70 340,0 600,26 C860,52 1040,10 1200,38 L1200,70 L0,70 Z\"></path>\n  </svg></div></div>\n\n<!-- STORE -->\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\">\n    <div class=\"spread mb-24\">\n      <div class=\"filters\" style=\"margin:0\" id=\"filters\"><button class=\"f-chip on\" data-cat=\"all\">Sabhi</button><button class=\"f-chip\" data-cat=\"Business\">Business</button><button class=\"f-chip\" data-cat=\"E-Commerce\">E-Commerce</button><button class=\"f-chip\" data-cat=\"Portfolio\">Portfolio</button><button class=\"f-chip\" data-cat=\"Local\">Local</button><button class=\"f-chip\" data-cat=\"Institutional\">Institutional</button></div>\n      <div class=\"small muted\" id=\"countLbl\">0 templates</div>\n    </div>\n    <div id=\"storeBody\">\n        <div class=\"grid g3\">\n          <div class=\"skeleton-card\"><span class=\"tag\">PLACEHOLDER</span><div class=\"muted small\">Template placeholder</div></div><div class=\"skeleton-card\"><span class=\"tag\">PLACEHOLDER</span><div class=\"muted small\">Template placeholder</div></div><div class=\"skeleton-card\"><span class=\"tag\">PLACEHOLDER</span><div class=\"muted small\">Template placeholder</div></div>\n        </div>\n        <div class=\"mt-24\"><div class=\"empty \">\n    <span class=\"ic \"><svg viewBox=\"0 0 24 24\"><path d=\"M12 5v14M5 12h14\"></path></svg></span>\n    <h4>Templates abhi add nahi hue</h4>\n    <p>Apne templates yahan add karo — naam, category, price aur description: <code>data.js → templates</code></p>\n  </div></div></div>\n  </div>\n</section>\n\n<!-- WHY -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\"><h2 class=\"h2\">Har template me <span class=\"grad-text fresh\">kya milta hai</span></h2></div>\n    <div class=\"grid g4\">\n      <div class=\"card center c-indigo in\" data-reveal=\"\">\n        <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"></path><path d=\"M14 2v6h6\"></path></svg></div>\n        <b>Full Source Code</b><p class=\"muted small mt-8\">Zip file + documentation</p></div>\n      <div class=\"card center c-green in\" data-reveal=\"\" data-delay=\"60\">\n        <div class=\"ic i-green\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></div>\n        <b>Free SSL</b><p class=\"muted small mt-8\">HTTPS + security headers</p></div>\n      <div class=\"card center c-cyan in\" data-reveal=\"\" data-delay=\"120\">\n        <div class=\"ic i-cyan\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"5\" y=\"2\" width=\"14\" height=\"20\" rx=\"2\"></rect><path d=\"M12 18h.01\"></path></svg></div>\n        <b>100% Responsive</b><p class=\"muted small mt-8\">Har device pe perfect</p></div>\n      <div class=\"card center c-amber in\" data-reveal=\"\" data-delay=\"180\">\n        <div class=\"ic i-amber\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M12 6v6l4 2\"></path></svg></div>\n        <b>Installation Support</b><p class=\"muted small mt-8\">Hum setup karke denge</p></div>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  index: "<!-- ================= INTRO ================= -->\n\n\n\n\n\n\n\n\n  \n\n\n\n\n<!-- ================= HERO ================= -->\n<section class=\"hero mesh\">\n  <span class=\"blob b1\"></span><span class=\"blob b2\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"hero-grid\">\n      <div>\n        <span class=\"eyebrow\"><span class=\"dot\"></span> <span id=\"heroEyebrow\"></span></span>\n        <h1 class=\"mt-16\">\n          <span id=\"hL1\"></span> <span class=\"grad-text\" id=\"hH1\"></span><br>\n          <span id=\"hL2\"></span> <span class=\"grad-text cool\" id=\"hH2\"></span>\n        </h1>\n        <p class=\"lead\" id=\"heroSub\"></p>\n\n        <div class=\"row mt-24\">\n          <a class=\"btn btn-primary\" id=\"cta1\">\n            <svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z\"></path><path d=\"M3 6h18M16 10a4 4 0 0 1-8 0\"></path></svg>\n            <span id=\"cta1t\"></span>\n          </a>\n          <a class=\"btn btn-ghost\" id=\"cta2\"><span id=\"cta2t\"></span> →</a>\n        </div>\n\n        <div class=\"hero-badges\" id=\"heroBadges\"></div>\n      </div>\n\n      <!-- CSS/SVG showcase graphics -->\n      <div class=\"showcase\">\n        <div class=\"hero-main-card\">\n          <div class=\"browser\"><i style=\"background:#f43f5e\"></i><i style=\"background:#f59e0b\"></i><i style=\"background:#10b981\"></i></div>\n          <div class=\"skel\"><i></i><i></i><i></i><i></i><i></i></div>\n        </div>\n        <div class=\"float-card fc1\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#f59e0b,#f97316)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></span>\n          <div><b>Lightning Fast</b><span>95+ PageSpeed</span></div>\n        </div>\n        <div class=\"float-card fc2\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#10b981,#14b8a6)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></span>\n          <div><b>Secure by Default</b><span>SSL + daily backup</span></div>\n        </div>\n        <div class=\"float-card fc3\">\n          <span class=\"fc-ic\" style=\"background:linear-gradient(135deg,#ec4899,#f43f5e)\">\n            <svg viewBox=\"0 0 24 24\"><path d=\"M3 3v18h18\"></path><path d=\"m7 14 4-4 3 3 5-6\"></path></svg></span>\n          <div><b>SEO + Growth</b><span>Rank on Google</span></div>\n        </div>\n      </div>\n    </div>\n\n    <div class=\"stat-grid\" id=\"statGrid\"></div>\n  </div>\n</section>\n<div id=\"wave1\"></div>\n\n<!-- ================= DO RAASTE ================= -->\n<section class=\"section tint tint-indigo\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Do raaste — aap choose karo</span>\n      <h2 class=\"h2 mt-16\">Sirf website nahi, <span class=\"grad-text\">poora business</span></h2>\n      <p>Template kharido ya scratch se banvayein — dono ka rasta yahin se shuru hota hai.</p>\n    </div>\n    <div class=\"grid g2\" id=\"pathsGrid\"></div>\n  </div>\n</section>\n<div id=\"wave2\"></div>\n\n<!-- ================= CORE FEATURES ================= -->\n<section class=\"section tint tint-violet\">\n  <span class=\"blob b4\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Core Features</span>\n      <h2 class=\"h2 mt-16\">Har website me <span class=\"grad-text warm\">ye sab built-in</span></h2>\n      <p>Basic package me hi milta hai — koi extra charge nahi.</p>\n    </div>\n    <div class=\"grid g3\" id=\"coreGrid\"></div>\n    <div class=\"center mt-32\"><a href=\"features.html\" class=\"btn btn-outline\">Poori Feature List (110+) →</a></div>\n  </div>\n</section>\n\n<!-- ================= WHY CHOOSE ================= -->\n<section class=\"section-sm tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"grid g4\" id=\"whyGrid\"></div>\n  </div>\n</section>\n\n<!-- ================= INCOME PREVIEW ================= -->\n<section class=\"section tint tint-peach\">\n  <span class=\"blob b2\"></span>\n  <div class=\"wrap\">\n    <div class=\"head\">\n      <span class=\"eyebrow amber\"><span class=\"dot\"></span> Multi Income Model</span>\n      <h2 class=\"h2 mt-16\">Sirf kharcha nahi — <span class=\"grad-text warm\">kamaai bhi</span></h2>\n      <p>Ek platform, 8 alag-alag income sources. Client bano, reseller bano, ya partner.</p>\n    </div>\n    <div class=\"grid g4\" id=\"incomePreview\"></div>\n    <div class=\"center mt-32\"><a href=\"earnings.html\" class=\"btn btn-warm\">Saare 8 Income Sources Dekho →</a></div>\n  </div>\n</section>\n\n<!-- ================= PROCESS ================= -->\n<section class=\"section tint tint-sky\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> Kaise kaam karta hai</span>\n      <h2 class=\"h2 mt-16\">4 simple steps, <span class=\"grad-text cool\">bas itna hi</span></h2>\n    </div>\n    <div class=\"grid g4\" id=\"processGrid\"></div>\n  </div>\n</section>\n\n<!-- ================= PRICING ================= -->\n<section class=\"section tint tint-rose\">\n  <span class=\"blob b1\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Pricing</span>\n      <h2 class=\"h2 mt-16\">Jeb par bhaari nahi, <span class=\"grad-text\">kaam me solid</span></h2>\n      <p>Koi hidden charge nahi — jo likha hai wahi milega.</p>\n    </div>\n    <div class=\"grid g3\" id=\"plansGrid\"></div>\n  </div>\n</section>\n\n<!-- ================= TESTIMONIALS ================= -->\n<section class=\"section tint tint-indigo\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Testimonials</span>\n      <h2 class=\"h2 mt-16\">Clients kya kehte hain</h2>\n    </div>\n    <div id=\"testiBox\"></div>\n  </div>\n</section>\n\n<!-- ================= CTA ================= -->\n<section class=\"section\">\n  <div class=\"wrap\">\n    <div class=\"grad-border\">\n      <div class=\"center\" style=\"padding:52px 30px\">\n        <span class=\"eyebrow\"><span class=\"dot\"></span> Aaj hi shuru karo</span>\n        <h2 class=\"h2 mt-16\">Apni website <span class=\"grad-text\">aaj</span> live karwao</h2>\n        <p class=\"muted mt-12\" style=\"max-width:560px;margin-inline:auto\">\n          Free consultation ke liye WhatsApp karo ya Google account se login kar ke dashboard explore karo.\n        </p>\n        <div class=\"row\" style=\"justify-content:center;margin-top:26px\">\n          <a href=\"login.html\" class=\"btn btn-primary\">Google se Login Karo</a>\n          <a href=\"order.html\" class=\"btn btn-ghost\">Free Quote Pao →</a>\n        </div>\n      </div>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  login: "<main class=\"auth-wrap\">\n  <div class=\"mesh\" style=\"border-radius:26px\">\n    <span class=\"blob b1\"></span><span class=\"blob b2\"></span>\n    <div class=\"auth-card\" data-reveal=\"\" style=\"position:relative;z-index:3\">\n\n      <div class=\"intro-logo\" style=\"width:66px;height:66px;font-size:21px;border-radius:19px;margin-bottom:18px\" id=\"lgMark\">SR</div>\n      <h2><span id=\"lgName\">SR Codematrix</span> me <span class=\"grad-text\">Welcome</span></h2>\n      <p class=\"muted small\">Login kar ke apna dashboard, orders aur earnings dekho.</p>\n\n      <div class=\"mt-24\">\n        <button class=\"gbtn\" type=\"button\">\n          <svg viewBox=\"0 0 48 48\" aria-hidden=\"true\">\n            <path fill=\"#EA4335\" d=\"M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2.5 24 .5 14.6.5 6.5 5.8 2.6 13.6l7.8 6.1C12.3 13.7 17.6 9.5 24 9.5z\"></path>\n            <path fill=\"#4285F4\" d=\"M46.1 24.5c0-1.6-.1-2.8-.4-4.1H24v8.4h12.5c-.3 2.1-1.6 5.2-4.7 7.3l7.6 5.9c4.5-4.2 6.7-10.3 6.7-17.5z\"></path>\n            <path fill=\"#FBBC05\" d=\"M10.4 28.3A14.6 14.6 0 0 1 9.6 24c0-1.5.3-3 .7-4.3l-7.7-6A23.6 23.6 0 0 0 .5 24c0 3.8.9 7.4 2.5 10.4l7.4-6.1z\"></path>\n            <path fill=\"#34A853\" d=\"M24 47.5c6.2 0 11.5-2 15.4-5.6l-7.6-5.9c-2 1.4-4.8 2.4-7.8 2.4-6.4 0-11.7-4.3-13.6-10.1l-7.4 6.1C6.5 42.2 14.6 47.5 24 47.5z\"></path>\n          </svg>\n          Sign in with Google\n        </button>\n      </div>\n\n      <div id=\"oauthNote\" class=\"notice mt-16\"></div>\n\n      <div class=\"or\">ya</div>\n\n      <button class=\"btn btn-ghost btn-block\" data-guest=\"\">\n        <svg width=\"17\" height=\"17\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><path d=\"M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z\"></path><circle cx=\"12\" cy=\"12\" r=\"3\"></circle></svg>\n        Bina login Dashboard Preview Dekho\n      </button>\n      <p class=\"tiny muted mt-12\">Guest mode sirf layout dikhane ke liye hai — koi data save nahi hota server par.</p>\n\n      <div class=\"divider\"></div>\n\n      <div class=\"grid g3\" style=\"gap:10px;text-align:left\">\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-green\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Secure</b><br>OAuth 2.0</div>\n        </div>\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-violet\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Fast</b><br>2 min setup</div>\n        </div>\n        <div style=\"display:flex;gap:8px;align-items:flex-start\">\n          <span class=\"ic i-amber\" style=\"width:34px;height:34px;border-radius:10px;margin:0;flex-shrink:0\"><svg viewBox=\"0 0 24 24\" style=\"width:17px;height:17px\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg></span>\n          <div class=\"tiny muted\"><b style=\"color:var(--txt)\">Earn</b><br>Reseller panel</div>\n        </div>\n      </div>\n    </div>\n  </div>\n</main>\n\n<section class=\"wrap\" style=\"padding-bottom:60px\">\n  <div class=\"grid g3\">\n    <div class=\"card center c-indigo\" data-reveal=\"\">\n      <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></div>\n      <h4>Secure Login</h4>\n      <p class=\"muted small mt-8\">Google OAuth 2.0 — hum aapka password store hi nahi karte.</p>\n    </div>\n    <div class=\"card center c-violet\" data-reveal=\"\" data-delay=\"70\">\n      <div class=\"ic i-violet\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></div>\n      <h4>2 Minute Setup</h4>\n      <p class=\"muted small mt-8\">Login → template chuno → payment → live.</p>\n    </div>\n    <div class=\"card center c-pink\" data-reveal=\"\" data-delay=\"140\">\n      <div class=\"ic i-pink\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg></div>\n      <h4>Reseller Income</h4>\n      <p class=\"muted small mt-8\">Login ke baad referral link + wallet milta hai.</p>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  store: "<!-- HERO -->\n<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Website Store</span>\n      <h1 class=\"h1 mt-16\">Ready website <span class=\"grad-text\">kharido</span></h1>\n      <p>Professionally designed templates — download karo, apna content daalo, live ho jao.\n        Source code + installation support included.</p>\n    </div>\n    <div class=\"grid g3\" style=\"max-width:820px;margin-inline:auto\" id=\"storeMeta\"></div>\n  </div>\n</section>\n<div id=\"waveA\"></div>\n\n<!-- STORE -->\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\">\n    <div class=\"spread mb-24\">\n      <div class=\"filters\" style=\"margin:0\" id=\"filters\"></div>\n      <div class=\"small muted\" id=\"countLbl\"></div>\n    </div>\n    <div id=\"storeBody\"></div>\n  </div>\n</section>\n\n<!-- WHY -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\"><h2 class=\"h2\">Har template me <span class=\"grad-text fresh\">kya milta hai</span></h2></div>\n    <div class=\"grid g4\">\n      <div class=\"card center c-indigo\" data-reveal=\"\">\n        <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"></path><path d=\"M14 2v6h6\"></path></svg></div>\n        <b>Full Source Code</b><p class=\"muted small mt-8\">Zip file + documentation</p></div>\n      <div class=\"card center c-green\" data-reveal=\"\" data-delay=\"60\">\n        <div class=\"ic i-green\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"></path></svg></div>\n        <b>Free SSL</b><p class=\"muted small mt-8\">HTTPS + security headers</p></div>\n      <div class=\"card center c-cyan\" data-reveal=\"\" data-delay=\"120\">\n        <div class=\"ic i-cyan\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"5\" y=\"2\" width=\"14\" height=\"20\" rx=\"2\"></rect><path d=\"M12 18h.01\"></path></svg></div>\n        <b>100% Responsive</b><p class=\"muted small mt-8\">Har device pe perfect</p></div>\n      <div class=\"card center c-amber\" data-reveal=\"\" data-delay=\"180\">\n        <div class=\"ic i-amber\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"M12 6v6l4 2\"></path></svg></div>\n        <b>Installation Support</b><p class=\"muted small mt-8\">Hum setup karke denge</p></div>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
   earnings: "<!-- HERO -->\n<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b4\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow amber\"><span class=\"dot\"></span> Multi Income Model</span>\n      <h1 class=\"h1 mt-16\">Ek platform, <span class=\"grad-text warm\">8 kamaai ke raaste</span></h1>\n      <p>Sirf website banane ki jagah nahi — ek complete income ecosystem. Client bano, reseller bano, ya partner.</p>\n    </div>\n    <div class=\"grid g4\" id=\"earnMeta\"></div>\n  </div>\n</section>\n<div id=\"waveE\"></div>\n\n<!-- SOURCES -->\n<section class=\"section tint tint-peach\" style=\"padding-top:34px\">\n  <div class=\"wrap\">\n    <div class=\"head\">\n      <span class=\"eyebrow amber\"><span class=\"dot\"></span> Saare sources</span>\n      <h2 class=\"h2 mt-16\">8 tarah se <span class=\"grad-text warm\">paisa kaise banta hai</span></h2>\n      <p>Har source ka detail — kaise shuru karein, kitna effort, aur kitna mil sakta hai.</p>\n    </div>\n    <div class=\"grid g2\" id=\"srcGrid\"></div>\n  </div>\n</section>\n\n<!-- REVENUE MIX -->\n<section class=\"section tint tint-sky\">\n  <div class=\"wrap\">\n    <div class=\"grid g2\" style=\"align-items:center;gap:40px\">\n      <div>\n        <span class=\"eyebrow mint\"><span class=\"dot\"></span> Revenue Mix</span>\n        <h2 class=\"h2 mt-16\">Kaunsa source <span class=\"grad-text cool\">sabse zyada</span> deta hai</h2>\n        <p class=\"muted mt-12\">\n          Har business ka mix alag hota hai. Neeche chart me apna actual revenue split daal sakte ho —\n          <code style=\"background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:1px 6px\">data.js → revenueMix</code>\n        </p>\n        <ul class=\"f-list mt-24\">\n          <li><span class=\"tk\"><svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg></span> <b>One-time:</b> Template + custom projects</li>\n          <li><span class=\"tk\"><svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg></span> <b>Recurring:</b> Hosting, domain, AMC</li>\n          <li><span class=\"tk\"><svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg></span> <b>Passive:</b> Referral, ad share, courses</li>\n        </ul>\n      </div>\n      <div class=\"card\" id=\"mixCard\">\n        <h3 class=\"h3 mb-24\">Revenue Split</h3>\n        <div id=\"mixBox\"></div>\n      </div>\n    </div>\n  </div>\n</section>\n\n<!-- RESELLER -->\n<section class=\"section tint tint-violet\">\n  <span class=\"blob b2\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Reseller Program</span>\n      <h2 class=\"h2 mt-16\">Reseller bano — <span class=\"grad-text\">commission kamao</span></h2>\n      <p id=\"resellerNote\"></p>\n    </div>\n    <div class=\"tbl-wrap\"><table id=\"resellerTbl\"></table></div>\n  </div>\n</section>\n\n<!-- CALCULATOR -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> Earning Calculator</span>\n      <h2 class=\"h2 mt-16\">Apni potential <span class=\"grad-text fresh\">kamaai dekho</span></h2>\n    </div>\n    <div class=\"card\" style=\"max-width:640px;margin-inline:auto\">\n      <div class=\"field\">\n        <label>Mahine me kitne clients la sakte ho? <b style=\"color:#4f46e5\" id=\"clVal\">10</b></label>\n        <input type=\"range\" id=\"clients\" min=\"1\" max=\"50\" value=\"10\">\n      </div>\n      <div class=\"field\">\n        <label>Average order value: <b style=\"color:#4f46e5\" id=\"avVal\">₹5,000</b></label>\n        <input type=\"range\" id=\"aov\" min=\"1000\" max=\"100000\" step=\"500\" value=\"5000\">\n      </div>\n      <div class=\"divider\"></div>\n      <div class=\"spread\">\n        <div>\n          <div class=\"kicker\">Monthly commission <span id=\"commLbl\"></span></div>\n          <div class=\"h2 grad-text\" id=\"calcOut\">—</div>\n        </div>\n        <div style=\"text-align:right\">\n          <div class=\"kicker\">Saal ka</div>\n          <div class=\"h3\" id=\"calcYear\">—</div>\n        </div>\n      </div>\n      <p class=\"tiny muted mt-12\">*Ye sirf ek estimate hai. Actual earning aapke effort par depend karti hai.</p>\n    </div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  order: "<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b2\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Custom Website</span>\n      <h1 class=\"h1 mt-16\">Apni website <span class=\"grad-text\">banvayein</span></h1>\n      <p>Neeche apna requirement select karo — <b style=\"color:#10b981\">live quote</b> turant milega.\n        Form bhejte hi hum contact karenge.</p>\n    </div>\n  </div>\n</section>\n<div id=\"waveO\" style=\"margin-top: -70px; position: relative; z-index: 3; line-height: 0;\"><div class=\"wave\"><svg viewBox=\"0 0 1200 70\" preserveAspectRatio=\"none\" style=\"transform:\">\n    <path fill=\"#eef2ff\" d=\"M0,32 C180,70 340,0 600,26 C860,52 1040,10 1200,38 L1200,70 L0,70 Z\"></path>\n  </svg></div></div>\n\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\">\n    <div class=\"grid order-grid\">\n\n      <!-- FORM -->\n      <div class=\"card\">\n        <h3 class=\"h3 mb-8\">1. Website ka type chuno</h3>\n        <p class=\"muted small mb-16\">Sabse pehle batayein aapko kaisi website chahiye.</p>\n        <div class=\"opt\" id=\"typeOpts\">\n    <div class=\"opt-card\" data-type=\"landing\">\n      <b>Landing Page</b><span class=\"d\">1–3 page, ek product/service ke liye</span>\n      <span class=\"p\">— se · 4 din</span>\n    </div>\n    <div class=\"opt-card on\" data-type=\"business\">\n      <b>Business Website</b><span class=\"d\">Company profile, services, gallery</span>\n      <span class=\"p\">— se · 7 din</span>\n    </div>\n    <div class=\"opt-card\" data-type=\"ecom\">\n      <b>E-Commerce Store</b><span class=\"d\">Online shop — cart, payment, inventory</span>\n      <span class=\"p\">— se · 12 din</span>\n    </div>\n    <div class=\"opt-card\" data-type=\"portal\">\n      <b>Web App / Portal</b><span class=\"d\">Login system, dashboard, custom features</span>\n      <span class=\"p\">— se · 20 din</span>\n    </div></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">2. Kitne pages chahiye?</h3>\n        <div class=\"field mt-16\">\n          <label>Pages: <b style=\"color:#4f46e5\" id=\"pgVal\">5</b>\n            <span class=\"muted small\" id=\"pgRate\">(per-page rate set nahi)</span></label>\n          <input type=\"range\" id=\"pages\" min=\"1\" max=\"30\" value=\"5\">\n          <div class=\"spread tiny muted\"><span>1</span><span>30</span></div>\n        </div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">3. Extra features (jo chahiye wo tick karo)</h3>\n        <p class=\"muted small mb-16\">Har feature ka alag charge — total right side me live update hoga.</p>\n        <div id=\"addons\">\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"pay\">\n      <span><span class=\"t\">Payment Gateway</span><span class=\"d\">Razorpay / Stripe / UPI</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"admin\">\n      <span><span class=\"t\">Admin Panel</span><span class=\"d\">Khud content manage karo</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"blog\">\n      <span><span class=\"t\">Blog / News Section</span><span class=\"d\">SEO ke liye best</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"book\">\n      <span><span class=\"t\">Appointment Booking</span><span class=\"d\">Slot booking + calendar</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"multi\">\n      <span><span class=\"t\">Multi-Language</span><span class=\"d\">Hindi + English + Marathi</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"seo\">\n      <span><span class=\"t\">Advanced SEO Pack</span><span class=\"d\">Keyword research + backlinks</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"logo\">\n      <span><span class=\"t\">Logo + Branding</span><span class=\"d\">Professional logo + brand kit</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"cont\">\n      <span><span class=\"t\">Content Writing</span><span class=\"d\">Har page ka content</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"chat\">\n      <span><span class=\"t\">Live Chat / Chatbot</span><span class=\"d\">Auto-reply bot, 24×7</span></span>\n      <span class=\"p\">+—</span>\n    </label>\n    <label class=\"check\">\n      <input type=\"checkbox\" data-addon=\"crm\">\n      <span><span class=\"t\">CRM + Lead Management</span><span class=\"d\">Enquiry tracking dashboard</span></span>\n      <span class=\"p\">+—</span>\n    </label></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">4. Delivery speed</h3>\n        <div class=\"opt mt-16\" id=\"speedOpts\">\n    <div class=\"opt-card on\" data-speed=\"normal\">\n      <b>Normal</b><span class=\"d\">Standard timeline</span>\n      <span class=\"p\">No extra charge</span>\n    </div>\n    <div class=\"opt-card\" data-speed=\"fast\">\n      <b>Express</b><span class=\"d\">30% faster delivery</span>\n      <span class=\"p\">+25% charge</span>\n    </div>\n    <div class=\"opt-card\" data-speed=\"turbo\">\n      <b>Turbo</b><span class=\"d\">Priority team, 2x fast</span>\n      <span class=\"p\">+50% charge</span>\n    </div></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-16\">5. Apni details</h3>\n        <form id=\"orderForm\">\n          <div class=\"grid g2\" style=\"gap:0 14px\">\n            <div class=\"field\"><label>Poora Naam <span>*</span></label><input type=\"text\" id=\"oName\" required=\"\"></div>\n            <div class=\"field\"><label>WhatsApp Number <span>*</span></label><input type=\"tel\" id=\"oPhone\" required=\"\" pattern=\"[0-9+ ]{8,}\"></div>\n            <div class=\"field\"><label>Email <span>*</span></label><input type=\"email\" id=\"oEmail\" required=\"\"></div>\n            <div class=\"field\"><label>Business Name</label><input type=\"text\" id=\"oBiz\"></div>\n          </div>\n          <div class=\"field\">\n            <label>Business Category</label>\n            <select id=\"oCat\">\n              <option>Retail / Shop</option><option>Restaurant / Cafe</option><option>Clinic / Hospital</option>\n              <option>School / Coaching</option><option>Real Estate</option><option>Manufacturing</option>\n              <option>IT / Agency</option><option>Salon / Gym</option><option>NGO / Trust</option><option>Other</option>\n            </select>\n          </div>\n          <div class=\"field\">\n            <label>Apna requirement detail me batao</label>\n            <textarea id=\"oNote\" placeholder=\"Jaise: online booking chahiye, 3 language me site chahiye, payment gateway lagana hai…\"></textarea>\n          </div>\n          <button type=\"submit\" class=\"btn btn-primary btn-block btn-lg\">Requirement Bhejo — Free Quote Pao</button>\n          <p class=\"tiny muted center mt-12\">🔒 Aapki details sirf quote ke liye use hongi.</p>\n        </form>\n      </div>\n\n      <!-- LIVE QUOTE -->\n      <div style=\"position:sticky;top:calc(var(--nav-h) + 20px)\">\n        <div class=\"card\" style=\"box-shadow:0 20px 50px -20px rgba(79,70,229,.35)\">\n          <span class=\"eyebrow\"><span class=\"dot\"></span> Live Quote</span>\n          <div class=\"mt-16\" id=\"sumBox\"><div class=\"sum-row\"><span class=\"muted\">Business Website (base)</span><b>—</b></div><div class=\"sum-row\" style=\"border-top:1px solid var(--line);margin-top:8px;padding-top:12px\">\n           <span>Subtotal</span><b>—</b></div></div>\n          <div class=\"divider\"></div>\n          <div class=\"spread\">\n            <div><div class=\"kicker\">Estimated Total</div><div class=\"h2 grad-text\" id=\"total\">—</div></div>\n            <div style=\"text-align:right\"><div class=\"kicker\">Delivery</div><div class=\"h3\" id=\"deliv\">7 din</div></div>\n          </div>\n          <div id=\"priceWarn\"><div class=\"notice mt-16\" style=\"font-size:12.5px\">⚠️ Kuch rates abhi set nahi hain —\n           <code>data.js → calculator</code> me apni pricing daalo, tab exact total dikhega.</div></div>\n          <div class=\"divider\"></div>\n          <div class=\"grid g2\" style=\"gap:8px\">\n            <div class=\"kpi\" style=\"padding:12px\"><div class=\"lbl\">Advance (50%)</div><div class=\"val\" style=\"font-size:19px\" id=\"adv\">—</div></div>\n            <div class=\"kpi\" style=\"padding:12px\"><div class=\"lbl\">After Delivery</div><div class=\"val\" style=\"font-size:19px\" id=\"bal\">—</div></div>\n          </div>\n          <div class=\"divider\"></div>\n          <div class=\"kicker mb-8\">Package me included</div>\n          <div id=\"inclBox\"><div class=\"empty sm\"><p>Package inclusions add karo: <code>data.js → calculator.included</code></p></div></div>\n        </div>\n\n        <div class=\"card mt-16\">\n          <h4>Need help?</h4>\n          <p class=\"muted small mt-8\">Confused ho? Seedha baat kar lo — free consultation.</p>\n          <div class=\"grid\" style=\"gap:8px;margin-top:14px\" id=\"helpBox\"><div class=\"empty sm\"><p>Contact add karo: <code>data.js → brand</code></p></div></div>\n        </div>\n      </div>\n\n    </div>\n  </div>\n</section>\n\n<!-- PROCESS -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\"><h2 class=\"h2\">Order ke baad <span class=\"grad-text fresh\">kya hoga</span></h2></div>\n    <div class=\"grid g4\" id=\"procBox\">\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"0\">\n      <span class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><circle cx=\"11\" cy=\"11\" r=\"7\"></circle><path d=\"m21 21-4.3-4.3\"></path></svg></span>\n      <b>1. Browse / Batao</b><p class=\"muted small mt-8\">Store se template chuno ya apna requirement bhejo.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"60\">\n      <span class=\"ic i-cyan\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M2 10h20\"></path></svg></span>\n      <b>2. Payment</b><p class=\"muted small mt-8\">UPI, card, netbanking — 100% secure gateway.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"120\">\n      <span class=\"ic i-violet\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"m16 18 6-6-6-6M8 6l-6 6 6 6\"></path></svg></span>\n      <b>3. Build &amp; Setup</b><p class=\"muted small mt-8\">Design, hosting, domain, SSL sab set karte hain.</p>\n    </div>\n    <div class=\"card card-hover center in\" data-reveal=\"\" data-delay=\"180\">\n      <span class=\"ic i-green\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg></span>\n      <b>4. Go Live</b><p class=\"muted small mt-8\">Training + handover — ab aap khud manage karo.</p>\n    </div></div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  features: "<!-- HERO -->\n<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Full Feature List</span>\n      <h1 class=\"h1 mt-16\"><span class=\"grad-text\" id=\"fCount\">112+</span> features</h1>\n      <p>Hum kya kya dete hain — poori list, koi chhupa hua charge nahi.\n        <span class=\"pill c3\">Included</span> <span class=\"pill c2\">Pro</span> <span class=\"pill c4\">Add-on</span></p>\n    </div>\n    <div class=\"grid g4\" id=\"featMeta\"><div class=\"card center in\" style=\"padding:18px\" data-reveal=\"\" data-delay=\"0\">\n      <div class=\"kicker\">Total Features</div>\n      <b class=\"h3 grad-text\" data-count=\"112\">112</b></div><div class=\"card center in\" style=\"padding:18px\" data-reveal=\"\" data-delay=\"60\">\n      <div class=\"kicker\">Free Included</div>\n      <b class=\"h3 grad-text\" data-count=\"78\">78</b></div><div class=\"card center in\" style=\"padding:18px\" data-reveal=\"\" data-delay=\"120\">\n      <div class=\"kicker\">Pro Features</div>\n      <b class=\"h3 grad-text\" data-count=\"23\">23</b></div><div class=\"card center in\" style=\"padding:18px\" data-reveal=\"\" data-delay=\"180\">\n      <div class=\"kicker\">Add-ons</div>\n      <b class=\"h3 grad-text\" data-count=\"11\">11</b></div></div>\n  </div>\n</section>\n<div id=\"waveF\" style=\"margin-top: -70px; position: relative; z-index: 3; line-height: 0;\"><div class=\"wave\"><svg viewBox=\"0 0 1200 70\" preserveAspectRatio=\"none\" style=\"transform:\">\n    <path fill=\"#eef2ff\" d=\"M0,32 C180,70 340,0 600,26 C860,52 1040,10 1200,38 L1200,70 L0,70 Z\"></path>\n  </svg></div></div>\n\n<!-- FEATURES -->\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\" id=\"featureRoot\">\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"0\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#4f46e5,#7c3aed)\">01</span>\n        <h3 class=\"h3\">Design &amp; Website Builder</h3>\n        <span class=\"pill\">14 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Drag &amp; drop page builder</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>60+ pre-built sections</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Mobile-first responsive layout</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Custom colour / font / branding</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Dark + light mode</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Scroll &amp; hover animations</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Unlimited image &amp; video gallery</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Custom domain connect</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Favicon + meta tags</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Sticky header &amp; mega menu</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Multi-step forms</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Testimonial + FAQ blocks</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Custom CSS / JS injection</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>White-label (apna brand)</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"40\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#06b6d4,#3b82f6)\">02</span>\n        <h3 class=\"h3\">Templates &amp; Store</h3>\n        <span class=\"pill\">11 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>120+ ready templates</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Category-wise filter</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Live demo preview</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Lifetime license</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Free future updates</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Source code (zip)</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Instant download after payment</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Secure payment gateway</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Custom template on request</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Resell rights</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>PSD / Figma source files</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"80\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#ec4899,#f43f5e)\">03</span>\n        <h3 class=\"h3\">E-Commerce</h3>\n        <span class=\"pill\">13 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Product catalogue</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Add to cart + checkout</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Coupon &amp; discount engine</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Inventory management</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Order tracking</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Razorpay / Stripe / UPI</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Product variants (size/colour)</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Wishlist</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Customer accounts</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>COD + shipping rules</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Multi-vendor marketplace</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Abandoned cart recovery</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>GST invoice generation</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"120\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#7c3aed,#ec4899)\">04</span>\n        <h3 class=\"h3\">Auth, Users &amp; Security</h3>\n        <span class=\"pill\">12 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Google Login (OAuth 2.0)</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Email + password login</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>OTP mobile login</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Role-based access control</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Session management</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Free SSL certificate</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Password reset flow</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>reCAPTCHA on forms</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Activity log</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Two-factor authentication (2FA)</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Social login (FB, Apple)</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>SSO / SAML enterprise</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"160\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#10b981,#14b8a6)\">05</span>\n        <h3 class=\"h3\">Hosting, Domain &amp; Backup</h3>\n        <span class=\"pill\">10 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Domain connect + DNS setup</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>NVMe SSD hosting</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Cloudflare CDN</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Daily auto backup</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Uptime monitoring</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Business email setup</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>cPanel / control panel access</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>One-click restore</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Staging environment</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>Dedicated IP</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"200\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#f59e0b,#f97316)\">06</span>\n        <h3 class=\"h3\">SEO &amp; Marketing</h3>\n        <span class=\"pill\">12 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>On-page SEO setup</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>sitemap.xml + robots.txt</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Google Search Console</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Google Analytics 4</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Open Graph / social preview</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Image compression + lazy load</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Core Web Vitals optimisation</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Local SEO / Google Business</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Schema.org markup</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Keyword research + backlinks</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>Google Ads setup</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>Email marketing automation</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"240\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#f43f5e,#f97316)\">07</span>\n        <h3 class=\"h3\">Monetization &amp; Multi Income</h3>\n        <span class=\"pill\">10 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Template selling system</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Referral program</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Reseller dashboard</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Wallet + payout tracking</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Coupon / seasonal pricing</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Multi-currency ready</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Ad slot management</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Subscription / AMC billing</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Affiliate link tracking</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>White-label reseller panel</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"280\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#3b82f6,#6366f1)\">08</span>\n        <h3 class=\"h3\">Dashboard &amp; Analytics</h3>\n        <span class=\"pill\">10 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Order management</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Earnings breakdown chart</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Visitor statistics</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Lead / enquiry management</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Payout history</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Profile &amp; settings</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>CSV / PDF report export</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>CRM integration</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Custom date-range reports</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>Advanced funnel analytics</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"320\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#14b8a6,#06b6d4)\">09</span>\n        <h3 class=\"h3\">Integrations</h3>\n        <span class=\"pill\">10 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>WhatsApp chat + API</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Google Maps embed</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Social media feed</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Contact form + email notify</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Payment gateway</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Google Calendar booking</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>SMS gateway</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>CRM / ERP webhook</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Shipping aggregator</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>Custom third-party API</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div>\n    <div class=\"feat-group in\" data-reveal=\"\" data-delay=\"360\">\n      <div class=\"feat-head\">\n        <span class=\"n\" style=\"background:linear-gradient(135deg,#84cc16,#10b981)\">10</span>\n        <h3 class=\"h3\">Support &amp; Training</h3>\n        <span class=\"pill\">10 features</span>\n      </div>\n      <div class=\"flist\">\n        <div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Video training (Hindi)</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>PDF documentation</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Email support</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>WhatsApp support</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Free bug-fix warranty</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi inc\">\n            <span class=\"tk\">✓</span><span>Annual health checkup</span><span class=\"meta\"><span class=\"pill c3\">Included</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Priority call support</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi pro\">\n            <span class=\"tk\">★</span><span>Dedicated account manager</span><span class=\"meta\"><span class=\"pill c2\">Pro</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>On-site training</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div><div class=\"fi add\">\n            <span class=\"tk\">+</span><span>24×7 emergency support</span><span class=\"meta\"><span class=\"pill c4\">Add-on</span></span></div>\n      </div>\n    </div></div>\n</section>\n\n<!-- COMPARISON -->\n<section class=\"section tint tint-sky\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> Plan Comparison</span>\n      <h2 class=\"h2 mt-16\">Kaunsa plan <span class=\"grad-text cool\">aapke liye sahi</span></h2>\n    </div>\n    <div class=\"tbl-wrap\"><table id=\"cmpTbl\">\n    <thead><tr><th>Feature</th><th>Starter</th><th>Business</th><th>Enterprise</th><th>Reseller</th></tr></thead>\n    <tbody>\n      <tr><td><b>Ready Template</b></td>\n      <td><span class=\"yes\">✔</span></td><td>✔ Premium</td><td>✔ Custom</td><td>✔ Sab</td>\n      </tr>\n      <tr><td><b>Pages</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Free Domain</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Hosting</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Payment Gateway</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Admin Panel</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Source Code</b></td>\n      <td><span class=\"yes\">✔</span></td><td><span class=\"yes\">✔</span></td><td><span class=\"yes\">✔</span></td><td><span class=\"yes\">✔</span></td>\n      </tr>\n      <tr><td><b>Google Login</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>WhatsApp Chat</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>SEO Setup</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Maintenance</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Reseller Earnings</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>White-label Rights</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr>\n      <tr><td><b>Support</b></td>\n      <td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td><td><span class=\"no\">—</span></td>\n      </tr></tbody></table></div>\n  </div>\n</section>\n\n<!-- TECH STACK -->\n<section class=\"section tint tint-violet\">\n  <span class=\"blob b4\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Tech Stack</span>\n      <h2 class=\"h2 mt-16\">Jis technology par <span class=\"grad-text\">bana hai</span></h2>\n    </div>\n    <div class=\"grid g4\" id=\"techGrid\">\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"0\">\n      <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"m16 18 6-6-6-6M8 6l-6 6 6 6\"></path></svg></div>\n      <b>Frontend</b><p class=\"muted small mt-8\">HTML5 · CSS3 · JavaScript · Tailwind · React</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"50\">\n      <div class=\"ic i-cyan\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M18 17a4 4 0 0 0-.9-7.9A6 6 0 0 0 6 10.5A3.5 3.5 0 0 0 6.5 17z\"></path></svg></div>\n      <b>Backend</b><p class=\"muted small mt-8\">Node.js · PHP · Python · Firebase</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"100\">\n      <div class=\"ic i-green\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"m12 2 9 5-9 5-9-5z\"></path><path d=\"m3 12 9 5 9-5M3 17l9 5 9-5\"></path></svg></div>\n      <b>Database</b><p class=\"muted small mt-8\">MySQL · PostgreSQL · MongoDB · Firestore</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"150\">\n      <div class=\"ic i-amber\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 2l9 4v6c0 5-3.8 8.6-9 10-5.2-1.4-9-5-9-10V6z\"></path><path d=\"M9 12l2 2 4-4\"></path></svg></div>\n      <b>Auth</b><p class=\"muted small mt-8\">Google OAuth 2.0 · Firebase Auth · JWT</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"200\">\n      <div class=\"ic i-pink\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"></path><path d=\"M3 10h18M16 14h2\"></path></svg></div>\n      <b>Payments</b><p class=\"muted small mt-8\">Razorpay · Stripe · PayPal · UPI</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"250\">\n      <div class=\"ic i-violet\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><path d=\"M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z\"></path></svg></div>\n      <b>Hosting</b><p class=\"muted small mt-8\">NVMe SSD · Cloudflare CDN · cPanel</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"300\">\n      <div class=\"ic i-teal\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 3v18h18\"></path><path d=\"m7 14 4-4 3 3 5-6\"></path></svg></div>\n      <b>Security</b><p class=\"muted small mt-8\">SSL · WAF · Daily Backup · 2FA</p>\n    </div>\n    <div class=\"card center in\" data-reveal=\"\" data-delay=\"350\">\n      <div class=\"ic i-blue\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg></div>\n      <b>Analytics</b><p class=\"muted small mt-8\">GA4 · Search Console · Hotjar</p>\n    </div></div>\n  </div>\n</section>\n\n<!-- FAQ -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> FAQ</span>\n      <h2 class=\"h2 mt-16\">Aksar poochhe jaane wale <span class=\"grad-text fresh\">sawaal</span></h2>\n    </div>\n    <div class=\"grid g2\" id=\"faqBox\">\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"0\">\n        <h4 style=\"font-size:16px\">Google login karna zaroori hai?</h4>\n        <p class=\"muted small mt-8\">Nahi. Website browse karne ke liye login ki zarurat nahi. Order track karne, template download karne aur earnings dekhne ke liye login karna hota hai.</p>\n      </div>\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"40\">\n        <h4 style=\"font-size:16px\">Template kharidne ke baad kya milta hai?</h4>\n        <p class=\"muted small mt-8\">Source code, documentation aur installation support. Refund policy ke liye Terms &amp; Conditions dekhein.</p>\n      </div>\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"80\">\n        <h4 style=\"font-size:16px\">Custom website me kitna time lagta hai?</h4>\n        <p class=\"muted small mt-8\">Project ke size par depend karta hai — order page par live calculator se estimated delivery dekh sakte ho.</p>\n      </div>\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"120\">\n        <h4 style=\"font-size:16px\">Reseller program kaise join karein?</h4>\n        <p class=\"muted small mt-8\">Login karke dashboard me Refer &amp; Earn tab kholo — wahan se apna referral link milega.</p>\n      </div>\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"160\">\n        <h4 style=\"font-size:16px\">Payout kab aur kaise milta hai?</h4>\n        <p class=\"muted small mt-8\">Dashboard ke Earnings tab me payout history aur next payout date dikhai deti hai.</p>\n      </div>\n      <div class=\"card card-hover in\" data-reveal=\"\" data-delay=\"200\">\n        <h4 style=\"font-size:16px\">Kya main apni website khud edit kar sakta hoon?</h4>\n        <p class=\"muted small mt-8\">Haan. Har site ke saath admin panel aur training milti hai — coding ki zarurat nahi.</p>\n      </div></div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  dashboard: "<div class=\"wrap\">\n  <div class=\"dash\">\n\n    <!-- SIDEBAR -->\n    <aside class=\"side\">\n      <div class=\"side-user\" id=\"sideUser\"></div>\n      <div class=\"side-nav\">\n        <button class=\"on\" data-tab=\"overview\">\n          <svg viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"></rect><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"></rect></svg>\n          Overview\n        </button>\n        <button data-tab=\"orders\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M6 2h9l5 5v15H6z\"></path><path d=\"M15 2v5h5\"></path></svg>\n          My Orders <span class=\"badge\" id=\"ordCount\">0</span>\n        </button>\n        <button data-tab=\"earnings\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg>\n          Earnings\n        </button>\n        <button data-tab=\"referral\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3\"></path><path d=\"M18 3v4h-4M6 21v-4h4\"></path></svg>\n          Refer &amp; Earn\n        </button>\n        <button data-tab=\"services\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M14.7 6.3a4 4 0 1 0 5 5L21 7l-4-4z\"></path><path d=\"m3 21 4-4\"></path></svg>\n          New Order\n        </button>\n        <button data-tab=\"settings\">\n          <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"3\"></circle><path d=\"M19.4 14a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 13.6H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 7L4.6 7a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z\"></path></svg>\n          Settings\n        </button>\n        <button onclick=\"SRAuth.signOut()\" style=\"color:#e11d48\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9\"></path></svg>\n          Sign Out\n        </button>\n      </div>\n    </aside>\n\n    <!-- MAIN -->\n    <main>\n      <div id=\"guard\" style=\"display:none\">\n        <div class=\"card center\" style=\"padding:60px 24px\">\n          <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"4\" y=\"10\" width=\"16\" height=\"11\" rx=\"2\"></rect><path d=\"M8 10V7a4 4 0 0 1 8 0v3\"></path></svg></div>\n          <h3 class=\"h3\">Pehle login karo 🔒</h3>\n          <p class=\"muted mt-8\">Dashboard dekhne ke liye Google account se login zaroori hai.</p>\n          <a href=\"login.html\" class=\"btn btn-primary mt-24\">Login Karo</a>\n        </div>\n      </div>\n\n      <div id=\"dashBody\" style=\"display:none\">\n\n        <!-- OVERVIEW -->\n        <section class=\"tabpane on\" id=\"tab-overview\">\n          <h2 class=\"h2\"><span id=\"welcomeLbl\">Namaste</span>, <span class=\"grad-text\" id=\"firstName\">User</span></h2>\n          <p class=\"muted\">Yeh hai aapke account ka overview.</p>\n\n          <div class=\"grid g4 mt-24\">\n            <div class=\"kpi\"><div class=\"lbl\">Total Orders</div><div class=\"val\" id=\"kOrders\">0</div><div class=\"sub\" id=\"kOrdersSub\">koi order nahi</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Total Value</div><div class=\"val\" id=\"kValue\">₹0</div><div class=\"sub\">aapke orders ka</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">In Progress</div><div class=\"val\" id=\"kActive\">0</div><div class=\"sub\">chal rahe projects</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Member Since</div><div class=\"val\" id=\"kSince\" style=\"font-size:20px\">—</div><div class=\"sub\" id=\"kProvider\">—</div></div>\n          </div>\n\n          <div class=\"panel mt-24\">\n            <div class=\"ph\"><h3>Recent Orders</h3>\n              <a href=\"#\" onclick=\"switchTab('orders')\" style=\"color:#4f46e5;font-size:13px;font-weight:700\">Sab dekho →</a></div>\n            <div id=\"recentOrders\"></div>\n          </div>\n\n          <div class=\"grid g2\">\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <div class=\"ph\"><h3>Quick Actions</h3></div>\n              <div class=\"grid g2\" style=\"gap:10px\">\n                <a href=\"store.html\" class=\"btn btn-ghost btn-sm\">🛍️ Template Kharido</a>\n                <a href=\"order.html\" class=\"btn btn-ghost btn-sm\">🛠️ Site Banvayein</a>\n                <button class=\"btn btn-ghost btn-sm\" onclick=\"switchTab('referral')\">🔗 Referral Link</button>\n                <a href=\"earnings.html\" class=\"btn btn-ghost btn-sm\">💰 Income Guide</a>\n              </div>\n            </div>\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <div class=\"ph\"><h3>Account</h3></div>\n              <div class=\"small muted\" id=\"acctBox\"></div>\n            </div>\n          </div>\n        </section>\n\n        <!-- ORDERS -->\n        <section class=\"tabpane\" id=\"tab-orders\">\n          <h2 class=\"h2\">My Orders</h2>\n          <p class=\"muted\">Aapke dwara kiye gaye saare orders.</p>\n          <div class=\"mt-24\" id=\"ordersWrap\"></div>\n        </section>\n\n        <!-- EARNINGS -->\n        <section class=\"tabpane\" id=\"tab-earnings\">\n          <h2 class=\"h2\">Earnings</h2>\n          <p class=\"muted\">Reseller commission aur payout ka poora hisaab.</p>\n          <div class=\"grid g3 mt-24\">\n            <div class=\"kpi\"><div class=\"lbl\">Commission Rate</div><div class=\"val\" id=\"eRate\">—</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Min. Payout</div><div class=\"val\" id=\"eMin\">—</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Payout Day</div><div class=\"val\" id=\"eDay\" style=\"font-size:20px\">—</div></div>\n          </div>\n          <div class=\"mt-24\" id=\"earningsBody\"></div>\n        </section>\n\n        <!-- REFERRAL -->\n        <section class=\"tabpane\" id=\"tab-referral\">\n          <h2 class=\"h2\">Refer &amp; <span class=\"grad-text\">Earn</span></h2>\n          <p class=\"muted\" id=\"refNote\"></p>\n          <div class=\"grid g2 mt-24\">\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <h3>Aapka Referral Link</h3>\n              <div class=\"ref-box mt-16\">\n                <input type=\"text\" id=\"refLink\" readonly=\"\">\n                <button class=\"btn btn-primary btn-sm\" id=\"copyRef\">Copy</button>\n              </div>\n              <div class=\"row mt-16\">\n                <button class=\"btn btn-ghost btn-sm\" id=\"shareWA\">WhatsApp Share</button>\n                <button class=\"btn btn-ghost btn-sm\" onclick=\"copyText(document.getElementById('refLink').value,'Link copied!')\">Copy Again</button>\n              </div>\n            </div>\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <h3>Kaise kaam karta hai</h3>\n              <div class=\"timeline mt-16\">\n                <div class=\"tl\"><div class=\"dotp\">1</div><div><b>Link share karo</b><div class=\"muted small\">WhatsApp, Instagram, Facebook — jahan man kare.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">2</div><div><b>Friend kharide</b><div class=\"muted small\">Wo template kharide ya custom site banvaye.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">3</div><div><b>Commission mile</b><div class=\"muted small\">Payment clear hote hi aapke wallet me.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">4</div><div><b>Withdraw karo</b><div class=\"muted small\">Payout day ko bank/UPI transfer.</div></div></div>\n              </div>\n            </div>\n          </div>\n        </section>\n\n        <!-- NEW ORDER -->\n        <section class=\"tabpane\" id=\"tab-services\">\n          <h2 class=\"h2\">Naya Order <span class=\"grad-text\">Karo</span></h2>\n          <p class=\"muted\">Kya chahiye? Ek click me shuru karo.</p>\n          <div class=\"grid g2 mt-24\" id=\"svcGrid\"></div>\n        </section>\n\n        <!-- SETTINGS -->\n        <section class=\"tabpane\" id=\"tab-settings\">\n          <h2 class=\"h2\">Settings</h2>\n          <p class=\"muted\">Profile aur account preferences.</p>\n          <div class=\"grid g2 mt-24\">\n            <div class=\"panel\">\n              <h3>Profile</h3>\n              <div class=\"field mt-16\"><label>Poora Naam</label><input type=\"text\" id=\"setName\"></div>\n              <div class=\"field\"><label>Email</label><input type=\"email\" id=\"setEmail\" readonly=\"\"></div>\n              <div class=\"field\"><label>Phone</label><input type=\"tel\" id=\"setPhone\" placeholder=\"+91 ...\"></div>\n              <div class=\"field\"><label>Business Name</label><input type=\"text\" id=\"setBiz\"></div>\n              <button class=\"btn btn-primary btn-block\" id=\"saveProfile\">Save Changes</button>\n              <p class=\"tiny muted mt-12\">Ye details sirf aapke browser me save hoti hain.</p>\n            </div>\n            <div class=\"panel\">\n              <h3>Local Data</h3>\n              <p class=\"muted small mt-8\">Dashboard par dikha hua data aapke isi browser me stored hai.</p>\n              <div class=\"row mt-16\">\n                <button class=\"btn btn-ghost btn-sm\" id=\"exportBtn\">Export JSON</button>\n                <button class=\"btn btn-ghost btn-sm\" id=\"clearBtn\" style=\"color:#e11d48\">Clear Orders</button>\n              </div>\n              <div class=\"divider\"></div>\n              <h3 style=\"font-size:15px\">Google Login Status</h3>\n              <div id=\"oauthStatus\" class=\"notice mt-12\"></div>\n            </div>\n          </div>\n        </section>\n\n      </div>\n    </main>\n  </div>\n</div>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
-  admin: "<!-- ===== HEADER ===== -->\n\n\n\n<!-- ===== LOCK SCREEN (sirf tab jab config me ADMIN_PIN ho) ===== -->\n<section class=\"wrap section\" id=\"lockScreen\" hidden=\"\">\n  <div class=\"auth-wrap\" style=\"padding-block:60px\">\n    <div class=\"auth-card\" style=\"max-width:400px\">\n      <span class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 10h16v11H4z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"></path><path d=\"M8 10V7a4 4 0 0 1 8 0v3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"></path></svg></span>\n      <h2 class=\"h3 mt-16\">Admin PIN</h2>\n      <p class=\"muted small mt-8\">Panel kholne ke liye apna PIN daalein (config.js me set hai).</p>\n      <form id=\"pinForm\" class=\"mt-24 text-left\">\n        <div class=\"field\">\n          <label>PIN <span>*</span></label>\n          <input type=\"password\" id=\"pinInput\" inputmode=\"numeric\" maxlength=\"8\" placeholder=\"••••\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn btn-primary\" style=\"width:100%\">Unlock</button>\n      </form>\n    </div>\n  </div>\n</section>\n\n<!-- ===== ADMIN APP ===== -->\n<main class=\"wrap section\" id=\"adminApp\">\n\n  <div class=\"sec-head\">\n    <h1 class=\"h2\">Website Control Panel</h1>\n    <p class=\"muted\">Yahan se site ka <b>saara content</b> badal sakte ho — brand, contact, templates,\n      rates, features, FAQ, sab kuch. <b>Save</b> karte hi poori site update ho jayegi.</p>\n  </div>\n\n  <!-- status bar -->\n  <div class=\"admin-bar\" id=\"adminBar\">\n    <div class=\"row-c\" style=\"gap:14px\">\n      <span class=\"pill c1\" id=\"dirtyPill\">All Saved</span>\n      <span class=\"muted small\" id=\"savedAt\">Abhi tak save nahi kiya</span>\n    </div>\n    <div class=\"row-c\" style=\"gap:10px\">\n      <button class=\"btn btn-line btn-sm\" id=\"btnExport\">⬇ JSON Export</button>\n      <button class=\"btn btn-line btn-sm\" id=\"btnImport\">⬆ JSON Import</button>\n      <button class=\"btn btn-line btn-sm\" id=\"btnDownload\">⬇ data.js Download</button>\n      <button class=\"btn btn-primary btn-sm\" id=\"btnSave\">💾 Save &amp; Publish</button>\n      <input type=\"file\" id=\"fileInput\" accept=\".json,application/json\" hidden=\"\">\n    </div>\n  </div>\n\n  <div class=\"notice info mt-16\" id=\"adminNotice\">\n    <b>Kaise kaam karta hai:</b> aap jo badlav karte ho wo is browser me\n    <code>localStorage</code> me save hota hai aur poori site turant update ho jati hai.\n    Hamesha ke liye <b>data.js Download</b> karke purani file replace kar dein —\n    tab kisi doosre device/browser par bhi wahi dikhega.\n  </div>\n\n  <div class=\"dash mt-24\">\n    <!-- ---------- SIDEBAR ---------- -->\n    <aside class=\"side\">\n      <div class=\"side-user\">\n        <span class=\"avatar av-i\">SR</span>\n        <div>\n          <div class=\"t\" style=\"font-weight:800\" id=\"admName\">SR Codematrix</div>\n          <div class=\"d muted small\">Owner / Admin</div>\n        </div>\n      </div>\n      <nav class=\"side-nav\" id=\"adminNav\" aria-label=\"Admin sections\"><button data-go=\"brand\" class=\"on\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"m12 2 3 6.5 7 .8-5 4.7 1.3 7L12 17.8 5.7 21l1.3-7-5-4.7 7-.8z\"></path></svg>Brand &amp; Contact</button><button data-go=\"social\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><circle cx=\"18\" cy=\"5\" r=\"3\"></circle><circle cx=\"6\" cy=\"12\" r=\"3\"></circle><circle cx=\"18\" cy=\"19\" r=\"3\"></circle><path d=\"m8.6 13.5 6.8 4M15.4 6.5l-6.8 4\"></path></svg>Social Links</button><button data-go=\"setup\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"3\"></circle><path d=\"M19.4 14a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 13.6H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 7L4.6 7a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z\"></path></svg>Setup Status</button><button data-go=\"hero\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M5 15c-1.5 1.5-2 6-2 6s4.5-.5 6-2c.8-.8.8-2.2 0-3s-2.2-.8-3 0z\"></path><path d=\"M14.5 12.5 19 8l1.5 1.5-1 4-4 1-3-3z\"></path><path d=\"M9 15l-3 3\"></path><path d=\"M14 8l2 2\"></path></svg>Hero Section</button><button data-go=\"stats\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M3 3v18h18\"></path><path d=\"m7 14 4-4 3 3 5-6\"></path></svg>Stats / Numbers</button><button data-go=\"paths\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"m16 18 6-6-6-6M8 6l-6 6 6 6\"></path></svg>Do Raaste</button><button data-go=\"coreFeatures\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"></rect><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"></rect></svg>Core Features</button><button data-go=\"featureGroups\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M20 6 9 17l-5-5\"></path></svg>Feature List</button><button data-go=\"incomeSources\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><ellipse cx=\"12\" cy=\"6\" rx=\"8\" ry=\"3\"></ellipse><path d=\"M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6\"></path><path d=\"M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6\"></path></svg>Income Sources</button><button data-go=\"revenueMix\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M12 14 8 9\"></path><path d=\"M20.5 18a9 9 0 1 0-17 0\"></path><circle cx=\"12\" cy=\"14\" r=\"1.6\"></circle></svg>Revenue Mix</button><button data-go=\"commission\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M3 7a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"></path><path d=\"M3 10h18M16 14h2\"></path></svg>Commission</button><button data-go=\"resellerPlans\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"9\" r=\"6\"></circle><path d=\"m9 14-2 7 5-3 5 3-2-7\"></path></svg>Reseller Plans</button><button data-go=\"templates\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z\"></path><path d=\"M3 6h18M16 10a4 4 0 0 1-8 0\"></path></svg>Templates</button><button data-go=\"templateCategories\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"m12 2 9 5-9 5-9-5z\"></path><path d=\"m3 12 9 5 9-5M3 17l9 5 9-5\"></path></svg>Categories</button><button data-go=\"calculator\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><rect x=\"2\" y=\"5\" width=\"20\" height=\"14\" rx=\"2\"></rect><path d=\"M2 10h20\"></path></svg>Order Calculator</button><button data-go=\"plans\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><circle cx=\"12\" cy=\"12\" r=\"5\"></circle><circle cx=\"12\" cy=\"12\" r=\"1.4\"></circle></svg>Pricing Plans</button><button data-go=\"process\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M21 12a9 9 0 1 1-3-6.7\"></path><path d=\"M21 4v5h-5\"></path></svg>Process</button><button data-go=\"whyChoose\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M13 2 3 14h8l-1 8 10-12h-8z\"></path></svg>Why Choose Us</button><button data-go=\"techStack\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M9 2v6M15 2v6\"></path><path d=\"M6 8h12v3a6 6 0 0 1-12 0z\"></path><path d=\"M12 17v5\"></path></svg>Tech Stack</button><button data-go=\"comparison\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z\"></path><path d=\"M14 2v5h5\"></path></svg>Comparison Table</button><button data-go=\"testimonials\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M20.8 5.6a5 5 0 0 0-7.1 0L12 7.3l-1.7-1.7a5 5 0 1 0-7.1 7.1L12 21l8.8-8.3a5 5 0 0 0 0-7.1z\"></path></svg>Testimonials</button><button data-go=\"faqs\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z\"></path></svg>FAQ</button><button data-go=\"dashboard\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><path d=\"M12 14 8 9\"></path><path d=\"M20.5 18a9 9 0 1 0-17 0\"></path><circle cx=\"12\" cy=\"14\" r=\"1.6\"></circle></svg>Dashboard Text</button><button data-go=\"seo\" class=\"\">\n      <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"9\"></circle><path d=\"M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18z\"></path></svg>SEO Meta</button></nav>\n      <div class=\"admin-side-foot\">\n        <button class=\"btn btn-line btn-sm\" id=\"btnReset\" style=\"width:100%\">↻ Sab Kuch Reset</button>\n      </div>\n    </aside>\n\n    <!-- ---------- CONTENT ---------- -->\n    <div id=\"adminBody\">\n    <div class=\"panel\"><div class=\"pb\">\n      <div class=\"admin-sec-h\">\n        <span class=\"ic i-indigo\"><svg viewBox=\"0 0 24 24\"><path d=\"m12 2 3 6.5 7 .8-5 4.7 1.3 7L12 17.8 5.7 21l1.3-7-5-4.7 7-.8z\"></path></svg></span>\n        <div><h3 class=\"h3\">Brand &amp; Contact</h3><p class=\"muted small\">Company ka naam, email, phone, address, GST — sab kuch.</p></div>\n      </div>\n      <div class=\"admin-card\">\n      <div class=\"admin-card-h\">Brand &amp; Contact</div>\n      <div class=\"admin-card-b\"><div class=\"field\"><label for=\"fbrand_name\">Company Ka Naam</label>\n    <input type=\"text\" id=\"fbrand_name\" data-p=\"brand.name\" value=\"SR Codematrix\"></div><div class=\"field\"><label for=\"fbrand_short\">Chhota Naam (logo me)</label>\n    <input type=\"text\" id=\"fbrand_short\" data-p=\"brand.short\" value=\"SR\"></div><div class=\"field\"><label for=\"fbrand_tagline\">Tagline</label>\n    <input type=\"text\" id=\"fbrand_tagline\" data-p=\"brand.tagline\" value=\"Website Sell · Website Build\"></div><div class=\"field\"><label for=\"fbrand_description\">Description</label>\n      <textarea id=\"fbrand_description\" data-p=\"brand.description\" rows=\"3\">Website templates kharido ya apni custom website banvayein — design, hosting, domain, maintenance sab ek hi jagah.</textarea></div><div class=\"field\"><label for=\"fbrand_email\">Email</label>\n    <input type=\"text\" id=\"fbrand_email\" data-p=\"brand.email\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_phone\">Phone</label>\n    <input type=\"text\" id=\"fbrand_phone\" data-p=\"brand.phone\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_whatsapp\">WhatsApp Number</label>\n    <input type=\"text\" id=\"fbrand_whatsapp\" data-p=\"brand.whatsapp\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_address\">Address</label>\n    <input type=\"text\" id=\"fbrand_address\" data-p=\"brand.address\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_hours\">Working Hours</label>\n    <input type=\"text\" id=\"fbrand_hours\" data-p=\"brand.hours\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_gstin\">GST Number</label>\n    <input type=\"text\" id=\"fbrand_gstin\" data-p=\"brand.gstin\" value=\"\"></div><div class=\"field\"><label for=\"fbrand_established\">Sansthapna Saal</label>\n    <input type=\"text\" id=\"fbrand_established\" data-p=\"brand.established\" value=\"\"></div></div>\n    </div>\n    </div></div></div>\n  </div>\n</main>",
+  order: "<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b2\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Custom Website</span>\n      <h1 class=\"h1 mt-16\">Apni website <span class=\"grad-text\">banvayein</span></h1>\n      <p>Neeche apna requirement select karo — <b style=\"color:#10b981\">live quote</b> turant milega.\n        Form bhejte hi hum contact karenge.</p>\n    </div>\n  </div>\n</section>\n<div id=\"waveO\"></div>\n\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\">\n    <div class=\"grid order-grid\">\n\n      <!-- FORM -->\n      <div class=\"card\">\n        <h3 class=\"h3 mb-8\">1. Website ka type chuno</h3>\n        <p class=\"muted small mb-16\">Sabse pehle batayein aapko kaisi website chahiye.</p>\n        <div class=\"opt\" id=\"typeOpts\"></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">2. Kitne pages chahiye?</h3>\n        <div class=\"field mt-16\">\n          <label>Pages: <b style=\"color:#4f46e5\" id=\"pgVal\">5</b>\n            <span class=\"muted small\" id=\"pgRate\"></span></label>\n          <input type=\"range\" id=\"pages\" min=\"1\" max=\"30\" value=\"5\">\n          <div class=\"spread tiny muted\"><span>1</span><span>30</span></div>\n        </div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">3. Extra features (jo chahiye wo tick karo)</h3>\n        <p class=\"muted small mb-16\">Har feature ka alag charge — total right side me live update hoga.</p>\n        <div id=\"addons\"></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-8\">4. Delivery speed</h3>\n        <div class=\"opt mt-16\" id=\"speedOpts\"></div>\n\n        <div class=\"divider\"></div>\n\n        <h3 class=\"h3 mb-16\">5. Apni details</h3>\n        <form id=\"orderForm\">\n          <div class=\"grid g2\" style=\"gap:0 14px\">\n            <div class=\"field\"><label>Poora Naam <span>*</span></label><input type=\"text\" id=\"oName\" required=\"\"></div>\n            <div class=\"field\"><label>WhatsApp Number <span>*</span></label><input type=\"tel\" id=\"oPhone\" required=\"\" pattern=\"[0-9+ ]{8,}\"></div>\n            <div class=\"field\"><label>Email <span>*</span></label><input type=\"email\" id=\"oEmail\" required=\"\"></div>\n            <div class=\"field\"><label>Business Name</label><input type=\"text\" id=\"oBiz\"></div>\n          </div>\n          <div class=\"field\">\n            <label>Business Category</label>\n            <select id=\"oCat\">\n              <option>Retail / Shop</option><option>Restaurant / Cafe</option><option>Clinic / Hospital</option>\n              <option>School / Coaching</option><option>Real Estate</option><option>Manufacturing</option>\n              <option>IT / Agency</option><option>Salon / Gym</option><option>NGO / Trust</option><option>Other</option>\n            </select>\n          </div>\n          <div class=\"field\">\n            <label>Apna requirement detail me batao</label>\n            <textarea id=\"oNote\" placeholder=\"Jaise: online booking chahiye, 3 language me site chahiye, payment gateway lagana hai…\"></textarea>\n          </div>\n          <button type=\"submit\" class=\"btn btn-primary btn-block btn-lg\">Requirement Bhejo — Free Quote Pao</button>\n          <p class=\"tiny muted center mt-12\">🔒 Aapki details sirf quote ke liye use hongi.</p>\n        </form>\n      </div>\n\n      <!-- LIVE QUOTE -->\n      <div style=\"position:sticky;top:calc(var(--nav-h) + 20px)\">\n        <div class=\"card\" style=\"box-shadow:0 20px 50px -20px rgba(79,70,229,.35)\">\n          <span class=\"eyebrow\"><span class=\"dot\"></span> Live Quote</span>\n          <div class=\"mt-16\" id=\"sumBox\"></div>\n          <div class=\"divider\"></div>\n          <div class=\"spread\">\n            <div><div class=\"kicker\">Estimated Total</div><div class=\"h2 grad-text\" id=\"total\">—</div></div>\n            <div style=\"text-align:right\"><div class=\"kicker\">Delivery</div><div class=\"h3\" id=\"deliv\">—</div></div>\n          </div>\n          <div id=\"priceWarn\"></div>\n          <div class=\"divider\"></div>\n          <div class=\"grid g2\" style=\"gap:8px\">\n            <div class=\"kpi\" style=\"padding:12px\"><div class=\"lbl\">Advance (50%)</div><div class=\"val\" style=\"font-size:19px\" id=\"adv\">—</div></div>\n            <div class=\"kpi\" style=\"padding:12px\"><div class=\"lbl\">After Delivery</div><div class=\"val\" style=\"font-size:19px\" id=\"bal\">—</div></div>\n          </div>\n          <div class=\"divider\"></div>\n          <div class=\"kicker mb-8\">Package me included</div>\n          <div id=\"inclBox\"></div>\n        </div>\n\n        <div class=\"card mt-16\">\n          <h4>Need help?</h4>\n          <p class=\"muted small mt-8\">Confused ho? Seedha baat kar lo — free consultation.</p>\n          <div class=\"grid\" style=\"gap:8px;margin-top:14px\" id=\"helpBox\"></div>\n        </div>\n      </div>\n\n    </div>\n  </div>\n</section>\n\n<!-- PROCESS -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\"><h2 class=\"h2\">Order ke baad <span class=\"grad-text fresh\">kya hoga</span></h2></div>\n    <div class=\"grid g4\" id=\"procBox\"></div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  features: "<!-- HERO -->\n<section class=\"section-sm mesh\" style=\"padding-top:58px\">\n  <span class=\"blob b1\"></span><span class=\"blob b3\"></span>\n  <div class=\"dots\"></div>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow\"><span class=\"dot\"></span> Full Feature List</span>\n      <h1 class=\"h1 mt-16\"><span class=\"grad-text\" id=\"fCount\">0</span> features</h1>\n      <p>Hum kya kya dete hain — poori list, koi chhupa hua charge nahi.\n        <span class=\"pill c3\">Included</span> <span class=\"pill c2\">Pro</span> <span class=\"pill c4\">Add-on</span></p>\n    </div>\n    <div class=\"grid g4\" id=\"featMeta\"></div>\n  </div>\n</section>\n<div id=\"waveF\"></div>\n\n<!-- FEATURES -->\n<section class=\"section tint tint-indigo\" style=\"padding-top:34px\">\n  <div class=\"wrap\" id=\"featureRoot\"></div>\n</section>\n\n<!-- COMPARISON -->\n<section class=\"section tint tint-sky\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> Plan Comparison</span>\n      <h2 class=\"h2 mt-16\">Kaunsa plan <span class=\"grad-text cool\">aapke liye sahi</span></h2>\n    </div>\n    <div class=\"tbl-wrap\"><table id=\"cmpTbl\"></table></div>\n  </div>\n</section>\n\n<!-- TECH STACK -->\n<section class=\"section tint tint-violet\">\n  <span class=\"blob b4\"></span>\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow pink\"><span class=\"dot\"></span> Tech Stack</span>\n      <h2 class=\"h2 mt-16\">Jis technology par <span class=\"grad-text\">bana hai</span></h2>\n    </div>\n    <div class=\"grid g4\" id=\"techGrid\"></div>\n  </div>\n</section>\n\n<!-- FAQ -->\n<section class=\"section tint tint-mint\">\n  <div class=\"wrap\">\n    <div class=\"head center\">\n      <span class=\"eyebrow mint\"><span class=\"dot\"></span> FAQ</span>\n      <h2 class=\"h2 mt-16\">Aksar poochhe jaane wale <span class=\"grad-text fresh\">sawaal</span></h2>\n    </div>\n    <div class=\"grid g2\" id=\"faqBox\"></div>\n  </div>\n</section>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  dashboard: "<div class=\"wrap\">\n  <div class=\"dash\">\n\n    <!-- SIDEBAR -->\n    <aside class=\"side\">\n      <div class=\"side-user\" id=\"sideUser\"></div>\n      <div class=\"side-nav\">\n        <button class=\"on\" data-tab=\"overview\">\n          <svg viewBox=\"0 0 24 24\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"14\" y=\"3\" width=\"7\" height=\"5\" rx=\"1\"></rect><rect x=\"14\" y=\"12\" width=\"7\" height=\"9\" rx=\"1\"></rect><rect x=\"3\" y=\"16\" width=\"7\" height=\"5\" rx=\"1\"></rect></svg>\n          Overview\n        </button>\n        <button data-tab=\"orders\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M6 2h9l5 5v15H6z\"></path><path d=\"M15 2v5h5\"></path></svg>\n          My Orders <span class=\"badge\" id=\"ordCount\">0</span>\n        </button>\n        <button data-tab=\"earnings\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6\"></path></svg>\n          Earnings\n        </button>\n        <button data-tab=\"referral\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3\"></path><path d=\"M18 3v4h-4M6 21v-4h4\"></path></svg>\n          Refer &amp; Earn\n        </button>\n        <button data-tab=\"services\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M14.7 6.3a4 4 0 1 0 5 5L21 7l-4-4z\"></path><path d=\"m3 21 4-4\"></path></svg>\n          New Order\n        </button>\n        <button data-tab=\"settings\">\n          <svg viewBox=\"0 0 24 24\"><circle cx=\"12\" cy=\"12\" r=\"3\"></circle><path d=\"M19.4 14a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 13.6H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 7L4.6 7a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z\"></path></svg>\n          Settings\n        </button>\n        <button onclick=\"SRAuth.signOut()\" style=\"color:#e11d48\">\n          <svg viewBox=\"0 0 24 24\"><path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9\"></path></svg>\n          Sign Out\n        </button>\n      </div>\n    </aside>\n\n    <!-- MAIN -->\n    <main>\n      <div id=\"guard\" style=\"display:none\">\n        <div class=\"card center\" style=\"padding:60px 24px\">\n          <div class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><rect x=\"4\" y=\"10\" width=\"16\" height=\"11\" rx=\"2\"></rect><path d=\"M8 10V7a4 4 0 0 1 8 0v3\"></path></svg></div>\n          <h3 class=\"h3\">Pehle login karo 🔒</h3>\n          <p class=\"muted mt-8\">Dashboard dekhne ke liye Google account se login zaroori hai.</p>\n          <a href=\"login.html\" class=\"btn btn-primary mt-24\">Login Karo</a>\n        </div>\n      </div>\n\n      <div id=\"dashBody\" style=\"display:none\">\n\n        <!-- OVERVIEW -->\n        <section class=\"tabpane on\" id=\"tab-overview\">\n          <h2 class=\"h2\"><span id=\"welcomeLbl\">Namaste</span>, <span class=\"grad-text\" id=\"firstName\">User</span></h2>\n          <p class=\"muted\">Yeh hai aapke account ka overview.</p>\n\n          <div class=\"grid g4 mt-24\">\n            <div class=\"kpi\"><div class=\"lbl\">Total Orders</div><div class=\"val\" id=\"kOrders\">0</div><div class=\"sub\" id=\"kOrdersSub\">koi order nahi</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Total Value</div><div class=\"val\" id=\"kValue\">₹0</div><div class=\"sub\">aapke orders ka</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">In Progress</div><div class=\"val\" id=\"kActive\">0</div><div class=\"sub\">chal rahe projects</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Member Since</div><div class=\"val\" id=\"kSince\" style=\"font-size:20px\">—</div><div class=\"sub\" id=\"kProvider\">—</div></div>\n          </div>\n\n          <div class=\"panel mt-24\">\n            <div class=\"ph\"><h3>Recent Orders</h3>\n              <a href=\"#\" onclick=\"switchTab('orders')\" style=\"color:#4f46e5;font-size:13px;font-weight:700\">Sab dekho →</a></div>\n            <div id=\"recentOrders\"></div>\n          </div>\n\n          <div class=\"grid g2\">\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <div class=\"ph\"><h3>Quick Actions</h3></div>\n              <div class=\"grid g2\" style=\"gap:10px\">\n                <a href=\"store.html\" class=\"btn btn-ghost btn-sm\">🛍️ Template Kharido</a>\n                <a href=\"order.html\" class=\"btn btn-ghost btn-sm\">🛠️ Site Banvayein</a>\n                <button class=\"btn btn-ghost btn-sm\" onclick=\"switchTab('referral')\">🔗 Referral Link</button>\n                <a href=\"earnings.html\" class=\"btn btn-ghost btn-sm\">💰 Income Guide</a>\n              </div>\n            </div>\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <div class=\"ph\"><h3>Account</h3></div>\n              <div class=\"small muted\" id=\"acctBox\"></div>\n            </div>\n          </div>\n        </section>\n\n        <!-- ORDERS -->\n        <section class=\"tabpane\" id=\"tab-orders\">\n          <h2 class=\"h2\">My Orders</h2>\n          <p class=\"muted\">Aapke dwara kiye gaye saare orders.</p>\n          <div class=\"mt-24\" id=\"ordersWrap\"></div>\n        </section>\n\n        <!-- EARNINGS -->\n        <section class=\"tabpane\" id=\"tab-earnings\">\n          <h2 class=\"h2\">Earnings</h2>\n          <p class=\"muted\">Reseller commission aur payout ka poora hisaab.</p>\n          <div class=\"grid g3 mt-24\">\n            <div class=\"kpi\"><div class=\"lbl\">Commission Rate</div><div class=\"val\" id=\"eRate\">—</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Min. Payout</div><div class=\"val\" id=\"eMin\">—</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Payout Day</div><div class=\"val\" id=\"eDay\" style=\"font-size:20px\">—</div></div>\n          </div>\n          <div class=\"grid g3 mt-16\">\n            <div class=\"kpi\"><div class=\"lbl\">Total Commission</div><div class=\"val\" id=\"kEarn\">₹0</div><div class=\"sub\" id=\"earnNote\">server se verified</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Wallet Balance</div><div class=\"val\" id=\"kWallet\">₹0</div><div class=\"sub\">payout ke liye ready</div></div>\n            <div class=\"kpi\"><div class=\"lbl\">Referral Bonus</div><div class=\"val\" id=\"kRefBonus\">₹0</div><div class=\"sub\">refer ki hui sales se</div></div>\n          </div>\n          <div class=\"mt-24\" id=\"earningsBody\"></div>\n        </section>\n\n        <!-- REFERRAL -->\n        <section class=\"tabpane\" id=\"tab-referral\">\n          <h2 class=\"h2\">Refer &amp; <span class=\"grad-text\">Earn</span></h2>\n          <p class=\"muted\" id=\"refNote\"></p>\n          <div class=\"grid g2 mt-24\">\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <h3>Aapka Referral Link</h3>\n              <div class=\"ref-box mt-16\">\n                <input type=\"text\" id=\"refLink\" readonly=\"\">\n                <button class=\"btn btn-primary btn-sm\" id=\"copyRef\">Copy</button>\n              </div>\n              <div class=\"row mt-16\">\n                <button class=\"btn btn-ghost btn-sm\" id=\"shareWA\">WhatsApp Share</button>\n                <button class=\"btn btn-ghost btn-sm\" onclick=\"copyText(document.getElementById('refLink').value,'Link copied!')\">Copy Again</button>\n              </div>\n            </div>\n            <div class=\"panel\" style=\"margin-bottom:0\">\n              <h3>Kaise kaam karta hai</h3>\n              <div class=\"timeline mt-16\">\n                <div class=\"tl\"><div class=\"dotp\">1</div><div><b>Link share karo</b><div class=\"muted small\">WhatsApp, Instagram, Facebook — jahan man kare.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">2</div><div><b>Friend kharide</b><div class=\"muted small\">Wo template kharide ya custom site banvaye.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">3</div><div><b>Commission mile</b><div class=\"muted small\">Payment clear hote hi aapke wallet me.</div></div></div>\n                <div class=\"tl\"><div class=\"dotp\">4</div><div><b>Withdraw karo</b><div class=\"muted small\">Payout day ko bank/UPI transfer.</div></div></div>\n              </div>\n            </div>\n          </div>\n        </section>\n\n        <!-- NEW ORDER -->\n        <section class=\"tabpane\" id=\"tab-services\">\n          <h2 class=\"h2\">Naya Order <span class=\"grad-text\">Karo</span></h2>\n          <p class=\"muted\">Kya chahiye? Ek click me shuru karo.</p>\n          <div class=\"grid g2 mt-24\" id=\"svcGrid\"></div>\n        </section>\n\n        <!-- SETTINGS -->\n        <section class=\"tabpane\" id=\"tab-settings\">\n          <h2 class=\"h2\">Settings</h2>\n          <p class=\"muted\">Profile aur account preferences.</p>\n          <div class=\"grid g2 mt-24\">\n            <div class=\"panel\">\n              <h3>Profile</h3>\n              <div class=\"field mt-16\"><label>Poora Naam</label><input type=\"text\" id=\"setName\"></div>\n              <div class=\"field\"><label>Email</label><input type=\"email\" id=\"setEmail\" readonly=\"\"></div>\n              <div class=\"field\"><label>Phone</label><input type=\"tel\" id=\"setPhone\" placeholder=\"+91 ...\"></div>\n              <div class=\"field\"><label>Business Name</label><input type=\"text\" id=\"setBiz\"></div>\n              <button class=\"btn btn-primary btn-block\" id=\"saveProfile\">Save Changes</button>\n              <p class=\"tiny muted mt-12\">Ye details sirf aapke browser me save hoti hain.</p>\n            </div>\n            <div class=\"panel\">\n              <h3>Local Data</h3>\n              <p class=\"muted small mt-8\">Dashboard par dikha hua data aapke isi browser me stored hai.</p>\n              <div class=\"row mt-16\">\n                <button class=\"btn btn-ghost btn-sm\" id=\"exportBtn\">Export JSON</button>\n                <button class=\"btn btn-ghost btn-sm\" id=\"clearBtn\" style=\"color:#e11d48\">Clear Orders</button>\n              </div>\n              <div class=\"divider\"></div>\n              <h3 style=\"font-size:15px\">Google Login Status</h3>\n              <div id=\"oauthStatus\" class=\"notice mt-12\"></div>\n            </div>\n          </div>\n        </section>\n\n      </div>\n    </main>\n  </div>\n</div>\n\n\n\n\n<!-- ===== APP-LIKE BOTTOM BAR (mobile only) ===== -->",
+  admin: "<!-- ===== HEADER ===== -->\n\n\n\n<!-- ===== LOCK SCREEN (sirf tab jab config me ADMIN_PIN ho) ===== -->\n<section class=\"wrap section\" id=\"lockScreen\" hidden=\"\">\n  <div class=\"auth-wrap\" style=\"padding-block:60px\">\n    <div class=\"auth-card\" style=\"max-width:400px\">\n      <span class=\"ic i-indigo\" style=\"margin-inline:auto\"><svg viewBox=\"0 0 24 24\"><path d=\"M4 10h16v11H4z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"></path><path d=\"M8 10V7a4 4 0 0 1 8 0v3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"></path></svg></span>\n      <h2 class=\"h3 mt-16\">Admin PIN</h2>\n      <p class=\"muted small mt-8\">Panel kholne ke liye apna PIN daalein (config.js me set hai).</p>\n      <form id=\"pinForm\" class=\"mt-24 text-left\">\n        <div class=\"field\">\n          <label>PIN <span>*</span></label>\n          <input type=\"password\" id=\"pinInput\" inputmode=\"numeric\" maxlength=\"8\" placeholder=\"••••\" autocomplete=\"off\">\n        </div>\n        <button class=\"btn btn-primary\" style=\"width:100%\">Unlock</button>\n      </form>\n    </div>\n  </div>\n</section>\n\n<!-- ===== ADMIN APP ===== -->\n<main class=\"wrap section\" id=\"adminApp\" hidden=\"\">\n\n  <div class=\"sec-head\">\n    <h1 class=\"h2\">Website Control Panel</h1>\n    <p class=\"muted\">Yahan se site ka <b>saara content</b> badal sakte ho — brand, contact, templates,\n      rates, features, FAQ, sab kuch. <b>Save</b> karte hi poori site update ho jayegi.</p>\n  </div>\n\n  <!-- status bar -->\n  <div class=\"admin-bar\" id=\"adminBar\">\n    <div class=\"row-c\" style=\"gap:14px\">\n      <span class=\"pill c1\" id=\"dirtyPill\">All Saved</span>\n      <span class=\"muted small\" id=\"savedAt\">Abhi tak save nahi kiya</span>\n    </div>\n    <div class=\"row-c\" style=\"gap:10px\">\n      <button class=\"btn btn-line btn-sm\" id=\"btnExport\">⬇ JSON Export</button>\n      <button class=\"btn btn-line btn-sm\" id=\"btnImport\">⬆ JSON Import</button>\n      <button class=\"btn btn-line btn-sm\" id=\"btnDownload\">⬇ data.js Download</button>\n      <button class=\"btn btn-primary btn-sm\" id=\"btnSave\">💾 Save &amp; Publish</button>\n      <input type=\"file\" id=\"fileInput\" accept=\".json,application/json\" hidden=\"\">\n    </div>\n  </div>\n\n  <div class=\"notice info mt-16\" id=\"adminNotice\">\n    <b>Kaise kaam karta hai:</b> aap jo badlav karte ho wo is browser me\n    <code>localStorage</code> me save hota hai aur poori site turant update ho jati hai.\n    Hamesha ke liye <b>data.js Download</b> karke purani file replace kar dein —\n    tab kisi doosre device/browser par bhi wahi dikhega.\n  </div>\n\n  <div class=\"dash mt-24\">\n    <!-- ---------- SIDEBAR ---------- -->\n    <aside class=\"side\">\n      <div class=\"side-user\">\n        <span class=\"avatar av-i\">SR</span>\n        <div>\n          <div class=\"t\" style=\"font-weight:800\" id=\"admName\">SR Codematrix</div>\n          <div class=\"d muted small\">Owner / Admin</div>\n        </div>\n      </div>\n      <nav class=\"side-nav\" id=\"adminNav\" aria-label=\"Admin sections\"></nav>\n      <div class=\"admin-side-foot\">\n        <button class=\"btn btn-line btn-sm\" id=\"btnReset\" style=\"width:100%\">↻ Sab Kuch Reset</button>\n      </div>\n    </aside>\n\n    <!-- ---------- CONTENT ---------- -->\n    <div id=\"adminBody\">\n      <div class=\"panel\"><div class=\"pb\"><p class=\"muted\">Loading…</p></div></div>\n    </div>\n  </div>\n</main>",
 };
 
 const SRCODE = {
@@ -1341,12 +1802,26 @@ SRReady(()=>{
     const u = SRAuth.getUser();
     if(!u){
       SRToast("Pehle login karo — phir order kar sakte ho.", "err", "Login Required");
-      setTimeout(()=> SRGo('login'), 1100);
+      setTimeout(()=> SRAuth.go('login'), 1100);
       return;
     }
-    SRStore.add({ item:name, amount:amt, email:u.email, status:"Pending" });
-    SRToast(`<b>${esc(name)}</b> order ho gaya! Dashboard me dekho.`, "ok", "Order Placed");
-    setTimeout(()=> SRGo('dashboard'), 1400);
+
+    /* ---------- REAL PAYMENT (Razorpay + Cloud Function) ---------- */
+    if(SRPay.configured() && SRFB.ready()){
+      SRPay.pay({
+        amount: amt, item:name, kind:'template',
+        notes:{ template:name, phone:u.phone || '' },
+        onSuccess: ()=> setTimeout(()=> SRAuth.go('dashboard'), 900),
+      });
+      return;
+    }
+
+    /* ---------- LOCAL / SETUP-PENDING MODE ---------- */
+    if(SRPay.configured() && !SRFB.ready()){
+      SRToast("Payment server connect ho raha hai — 2 second baad try karo.", "err");
+      return;
+    }
+    SRPay.fallbackEnquiry(name, amt);
   }
 
   document.querySelectorAll('.f-chip').forEach(c=>{
@@ -1571,26 +2046,37 @@ SRReady(()=>{
     </div>`).join('');
 
   /* ---------- submit ---------- */
-  document.getElementById('orderForm').addEventListener('submit', e=>{
+  document.getElementById('orderForm').addEventListener('submit', async e=>{
     e.preventDefault();
     if(!SR_CONFIG.ENABLE_ORDERS){ SRToast("Orders abhi band hain.","err"); return; }
     const r = calc();
     const u = SRAuth.getUser();
-    SRStore.add({
-      item  : `${r.type.t} — Custom Project`,
-      amount: r.total,
+
+    const btn = e.target.querySelector('button[type=submit]');
+    const lbl = btn ? btn.innerHTML : '';
+    if(btn){ btn.disabled = true; btn.innerHTML = 'Bhej rahe hain…'; }
+
+    const res = await SRStore.enquiry({
+      type  : `${r.type.t} — Custom Project`,
+      amount: r.missing ? null : r.total,
       email : u ? u.email : document.getElementById('oEmail').value,
       phone : document.getElementById('oPhone').value,
+      biz   : document.getElementById('oBiz').value,
+      cat   : document.getElementById('oCat').value,
       note  : document.getElementById('oNote').value,
-      status: "Pending Quote",
+      pages : +document.getElementById('pages').value,
+      speed : (K.speeds.find(s=>s.id===sel.speed)||{}).t || '',
     });
-    SRToast(`Requirement mil gaya! Estimate <b>${r.missing ? "—" : inr(r.total)}</b> · ${r.days} din.`,
+
+    if(btn){ btn.disabled = false; btn.innerHTML = lbl; }
+    SRToast(`Requirement mil gaya! Estimate <b>${r.missing ? "—" : inr(r.total)}</b> · ${r.days} din.`
+            + (res.remote ? '' : ' <span class="tiny">(local save)</span>'),
             "ok", "Quote Ready");
     e.target.reset();
     sel.addons.clear();
     document.querySelectorAll('[data-addon]').forEach(cb => cb.checked = false);
     calc();
-    setTimeout(()=>{ if(u) SRGo('dashboard'); }, 1600);
+    setTimeout(()=>{ if(u) SRAuth.go('dashboard'); }, 1600);
   });
 
   calc();
@@ -1694,7 +2180,7 @@ function switchTab(id){
 }
 window.switchTab = switchTab;
 
-SRReady(()=>{
+SRReady(async ()=>{
 
   const user = SRAuth.getUser();
   const guard = document.getElementById('guard');
@@ -1715,16 +2201,54 @@ SRReady(()=>{
   document.getElementById('firstName').textContent = user.name.split(' ')[0];
   document.getElementById('welcomeLbl').textContent = DATA.dashboard.welcome || "Namaste";
 
-  /* ---------- orders (real, localStorage) ---------- */
-  const orders = SRStore.byEmail(user.email);
+  /* ---------- orders ----------
+     Firebase ready ho to Firestore se (asli, server-verified orders),
+     warna localStorage (local mode).                              ---------- */
+  let orders = [];
+  let remote = false;
+  let earn   = null;
+
+  if(window.SRFB && SRFB.ready() && user.uid){
+    try{
+      const [fsOrders, fsEarn] = await Promise.all([
+        SRFB.myOrders(user.uid),
+        SRFB.myEarnings(user.uid),
+      ]);
+      orders = fsOrders.map(o=>({
+        id    : o.id.slice(-6).toUpperCase(),
+        item  : o.item,
+        date  : o.paidAt && o.paidAt.toDate
+                  ? o.paidAt.toDate().toISOString().slice(0,10)
+                  : (o.createdAt && o.createdAt.toDate
+                      ? o.createdAt.toDate().toISOString().slice(0,10) : '—'),
+        amount: o.amount,
+        status: o.status === 'paid' ? 'Paid' : (o.status || 'Pending'),
+      }));
+      earn   = fsEarn;
+      remote = true;
+    }catch(e){ console.warn('firestore orders:', e); }
+  }
+  if(!remote) orders = SRStore.byEmail(user.email);
+
   const total  = orders.reduce((s,o)=> s + (Number(o.amount)||0), 0);
-  const active = orders.filter(o => /progress|pending/i.test(o.status||"")).length;
+  const active = orders.filter(o => /progress|pending|created/i.test(o.status||"")).length;
 
   document.getElementById('kOrders').textContent = orders.length;
-  document.getElementById('kOrdersSub').textContent = orders.length ? "total orders" : "koi order nahi";
+  document.getElementById('kOrdersSub').textContent = remote
+    ? (orders.length ? "verified orders" : "koi order nahi")
+    : (orders.length ? "local orders" : "koi order nahi");
   document.getElementById('kValue').textContent  = inr(total);
   document.getElementById('kActive').textContent = active;
   document.getElementById('ordCount').textContent = orders.length;
+
+  /* ---------- earnings (server se calculate hui) ---------- */
+  if(earn){
+    const set = (id, v) => { const el = document.getElementById(id); if(el) el.textContent = v; };
+    set('kEarn',    inr(earn.commission || 0));
+    set('kWallet',  inr(earn.wallet || 0));
+    set('kRefBonus',inr(earn.referralBonus || 0));
+    set('earnNote', 'Server se verified · har sale par automatic');
+  }
 
   if(user.loggedAt){
     const d = new Date(user.loggedAt);
