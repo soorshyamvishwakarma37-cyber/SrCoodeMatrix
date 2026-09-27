@@ -1,0 +1,81 @@
+<!--
+================================================================================
+ SR CODEMATRIX — 3 FILES ME POORA WEBSITE
+================================================================================
+   index.html   → poora website (8 pages + admin panel)
+   style.css    → saara design / CSS
+   script.js    → saara JavaScript + saara data
+
+ Teeno files ek hi folder me rakho aur index.html kholo — chalu ho jayega.
+ Hosting par upload karne ke liye teeno files ek saath daal do.
+
+ ---------------------------------------------------------------------------
+ DATA KAISE BADLEIN?  (script.js kholo)
+ --------------------------------------------------------------------------
+ Sabse upar "const DATA = {" dhoondo — usi ke andar sab kuch hai:
+   brand.email, brand.phone, brand.whatsapp, brand.address ...
+   templates: [...]        → store ke templates
+   calculator.types[].p    → order ki rates
+   plans[].price           → pricing
+   faqs, testimonials, stats, incomeSources ...
+
+ YA phir sabse aasan tareeka:
+   Site kholo → #admin → 24 sections me sab edit karo → "Save & Publish"
+
+ GOOGLE LOGIN : script.js me  GOOGLE_CLIENT_ID : "....apps.googleusercontent.com",
+ ADMIN PIN    : script.js me  ADMIN_PIN         : "7391",
+
+ ---------------------------------------------------------------------------
+ PAGES (hash router):  #index  #store  #earnings  #order  #features
+                       #login  #dashboard  #admin
+================================================================================
+-->
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SR Codematrix — Website Sell &amp; Website Build</title>
+<meta name="description" content="Website templates kharido ya apni custom website banvayein — design, hosting, domain, payment gateway aur maintenance sab ek hi jagah.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%234f46e5'/><text x='50' y='68' font-size='46' font-weight='900' text-anchor='middle' fill='white' font-family='Arial'>SR</text></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<script>document.documentElement.classList.add('js')</script>
+
+<div id="intro">
+  <span class="blob b1"></span><span class="blob b2"></span>
+  <div class="intro-box">
+    <div class="intro-logo" id="introLogo">SR</div>
+    <div class="intro-name grad-text" id="introName">SR CODEMATRIX</div>
+    <div class="intro-tag" id="introTag">Website Sell · Website Build</div>
+    <div class="intro-bar"><span></span></div>
+    <div class="mtx">*+]1}{$/++0[1[=&gt;#*@#{#*&amp;&lt;&lt;</div>
+  </div>
+  <button class="intro-skip">SKIP INTRO →</button>
+</div>
+
+<div id="srHeader"></div>
+<main id="srPage" class="sr-page"></main>
+<div id="srFooter"></div>
+
+<noscript><div class="wrap section"><div class="notice">Ye site chalane ke liye JavaScript ON karein.</div></div></noscript>
+
+<!-- ======================= SITE DATA ======================= -->
+
+<!-- ======================= CONFIG ======================= -->
+
+<!-- ======================= MAIN ======================= -->
+
+<!-- ======================= AUTH ======================= -->
+
+<!-- ======================= HEADER (document.write → innerHTML) ======================= -->
+
+<!-- ======================= FOOTER ======================= -->
+
+<!-- ======================= ROUTER + PAGE LOGIC ======================= -->
+
+
+<script src="script.js"></script>
+</body>
+</html>
